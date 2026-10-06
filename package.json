@@ -1,0 +1,27 @@
+{
+  "name": "cloudtak-plugin-rubber-sheet",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CloudTAK plugin — rubber-sheet an image or PDF over the map and export KMZ, GeoTIFF, or GeoPDF",
+  "license": "Apache-2.0",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint .",
+    "check": "vue-tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tak-ps/cloudtak": "file:../../../CloudTAK/app",
+    "@tak-ps/vue-tabler": "^5.0.0",
+    "@tabler/icons-vue": "^3.31.0",
+    "eslint": "^10.0.1",
+    "globals": "^17.3.0",
+    "maplibre-gl": "^5.1.0",
+    "pdfjs-dist": "4.10.38",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.52.0",
+    "vue": "^3.5.26",
+    "vue-tsc": "^3.2.2"
+  }
+}
