@@ -12,6 +12,8 @@ export const sheetUi = reactive({
     name: '',
     page: 1,
     pageCount: 1,
+    /** Non-null while choosing a PDF page; entries are thumbnail data URLs or null while loading. */
+    pageThumbs: null as (string | null)[] | null,
     hasSheet: false,
     exportType: '' as ExportType,
     busy: false,

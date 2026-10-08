@@ -5,7 +5,7 @@ import MenuTemplate from './lib/MenuTemplate.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
 import IconUrl from './lib/RubberSheet.svg';
 import { MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
-import { bind, detach } from './lib/sheet.ts';
+import { bind, clearSheet, detach } from './lib/sheet.ts';
 
 const IconRubberSheet = {
     render: () => h('img', {
@@ -15,6 +15,21 @@ const IconRubberSheet = {
         alt: 'Rubber Sheet',
     }),
 };
+
+function CancelButton() {
+    return h(
+        'button',
+        {
+            type: 'button',
+            class: 'btn btn-sm btn-outline-secondary',
+            title: 'Cancel rubber sheet',
+            onClick: () => {
+                void clearSheet();
+            },
+        },
+        'Cancel',
+    );
+}
 
 export default class RubberSheet implements PluginInstance {
     api: PluginAPI;
@@ -28,8 +43,9 @@ export default class RubberSheet implements PluginInstance {
             path: ROUTE_PATH,
             name: ROUTE_NAME,
             component: {
-                render: () => h(MenuTemplate, { name: 'Rubber Sheet' }, {
+                render: () => h(MenuTemplate, { name: 'Rubber Sheet', back: false }, {
                     default: () => h(RubberSheetPane, { api: this.api }),
+                    buttons: () => h(CancelButton),
                 }),
             },
         }, 'home-menu');

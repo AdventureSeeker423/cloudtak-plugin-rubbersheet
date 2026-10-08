@@ -1,12 +1,15 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import workerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw';
 import { MAX_IMAGE_SIDE } from './constants.ts';
+
+const THUMB_MAX_SIDE = 180;
 
 let workerReady = false;
 
 function configureWorker(): void {
     if (workerReady) return;
-    GlobalWorkerOptions.workerSrc = workerUrl;
+    const blob = new Blob([workerCode], { type: 'text/javascript' });
+    GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
     workerReady = true;
 }
 
@@ -45,11 +48,15 @@ export async function openPdf(data: ArrayBuffer): Promise<number> {
     return openDocument.numPages;
 }
 
-export async function renderPdfPage(pageNumber: number): Promise<HTMLCanvasElement> {
+async function renderPageAtScale(
+    pageNumber: number,
+    maxSide: number,
+    maxScale = 4,
+): Promise<HTMLCanvasElement> {
     if (!openDocument) throw new Error('No PDF is open');
     const page = await openDocument.getPage(pageNumber);
     const base = page.getViewport({ scale: 1 });
-    const scale = Math.min(4, MAX_IMAGE_SIDE / Math.max(base.width, base.height));
+    const scale = Math.min(maxScale, maxSide / Math.max(base.width, base.height));
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(viewport.width));
@@ -58,4 +65,13 @@ export async function renderPdfPage(pageNumber: number): Promise<HTMLCanvasEleme
     if (!ctx) throw new Error('Could not draw the PDF page');
     await page.render({ canvasContext: ctx, viewport }).promise;
     return canvas;
+}
+
+export async function renderPdfPage(pageNumber: number): Promise<HTMLCanvasElement> {
+    return renderPageAtScale(pageNumber, MAX_IMAGE_SIDE, 4);
+}
+
+export async function renderPdfThumbnail(pageNumber: number): Promise<string> {
+    const canvas = await renderPageAtScale(pageNumber, THUMB_MAX_SIDE, 1);
+    return canvas.toDataURL('image/png');
 }

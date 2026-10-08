@@ -8,6 +8,7 @@ import {
     pointInQuad,
     quadForView,
     rotateAroundCenter,
+    scaleAboutCenter,
     scaleAboutOpposite,
     type Quad,
 } from '../lib/geometry.ts';
@@ -41,6 +42,24 @@ test('shift-scale grows the quad about the opposite corner', () => {
     assert.ok(Math.abs(scaled[0][1] - 2) < 1e-9);
     assert.ok(Math.abs(scaled[2][0] - 2) < 1e-9);
     assert.ok(Math.abs(scaled[2][1] - 0) < 1e-9);
+});
+
+test('alt-scale grows the quad about the centroid', () => {
+    const quad: Quad = [
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [0, 0],
+    ];
+    const centerBefore = centroid(quad);
+    const scaled = scaleAboutCenter(quad, 1, [1.5, 1.5]);
+    const centerAfter = centroid(scaled);
+    assert.ok(Math.abs(centerBefore[0] - centerAfter[0]) < 1e-9);
+    assert.ok(Math.abs(centerBefore[1] - centerAfter[1]) < 1e-9);
+    assert.ok(Math.abs(scaled[1][0] - 1.5) < 1e-9);
+    assert.ok(Math.abs(scaled[1][1] - 1.5) < 1e-9);
+    assert.ok(Math.abs(scaled[3][0] - -0.5) < 1e-9);
+    assert.ok(Math.abs(scaled[3][1] - -0.5) < 1e-9);
 });
 
 test('rotation is about the centroid', () => {

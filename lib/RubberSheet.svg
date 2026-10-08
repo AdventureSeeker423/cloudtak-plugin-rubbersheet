@@ -1,8 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
-  <path d="M6 9.5L24 6.5L27 22.5L8 26.5Z" stroke="#d0d7de" stroke-width="1.6" fill="rgba(32,107,196,0.35)"/>
-  <circle cx="6" cy="9.5" r="2.2" fill="#ffffff" stroke="#111111" stroke-width="1"/>
-  <circle cx="24" cy="6.5" r="2.2" fill="#ffffff" stroke="#111111" stroke-width="1"/>
-  <circle cx="27" cy="22.5" r="2.2" fill="#ffffff" stroke="#111111" stroke-width="1"/>
-  <circle cx="8" cy="26.5" r="2.2" fill="#ffffff" stroke="#111111" stroke-width="1"/>
-  <circle cx="15" cy="4.2" r="2.4" fill="#206bc4" stroke="#ffffff" stroke-width="1"/>
+  <!-- paper roll cylinder -->
+  <ellipse cx="9" cy="16" rx="5.5" ry="8.5" fill="#3d4a56" stroke="#d0d7de" stroke-width="1.4"/>
+  <ellipse cx="9" cy="16" rx="2.2" ry="3.4" fill="#1a2229" stroke="#9aa7b2" stroke-width="1"/>
+  <!-- unrolled sheet -->
+  <path d="M9 7.5 C14 7.5 18 8 22 9.2 C25.5 10.3 27.5 12 28 14.5 C28.4 16.8 27.2 19 24.5 20.2 C21 21.6 16 22.2 11.5 22.5 L9 22.5"
+        fill="rgba(32,107,196,0.35)" stroke="#d0d7de" stroke-width="1.4" stroke-linejoin="round"/>
+  <!-- curl edge -->
+  <path d="M24.5 20.2 C26.8 19.4 27.8 17.6 27.2 15.8" stroke="#9aa7b2" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- sheet lines -->
+  <path d="M12 11.5 H23.5 M12 14.5 H25 M12 17.5 H24.5" stroke="#9aa7b2" stroke-width="1" stroke-linecap="round" opacity="0.85"/>
 </svg>

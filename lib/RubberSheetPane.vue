@@ -1,7 +1,8 @@
 <template>
     <div class='p-3'>
         <p class='text-secondary mb-3'>
-            Drag a corner to warp the sheet. Shift-drag a corner to scale it.
+            Drag a corner to warp the sheet. Shift-drag a corner to scale about
+            the opposite corner. Alt-drag (or Shift+Alt) to scale from the center.
             Drag the blue knob to rotate, or drag the image to move it.
         </p>
 
@@ -18,27 +19,17 @@
             @change='onFile'
         >
 
-        <template v-if='sheetUi.pageCount > 1'>
-            <label
-                class='form-label'
-                for='rubber-sheet-page'
-            >PDF page</label>
-            <select
-                id='rubber-sheet-page'
-                class='form-select mb-3'
-                :value='sheetUi.page'
-                :disabled='sheetUi.busy'
-                @change='onPage'
-            >
-                <option
-                    v-for='page in pages'
-                    :key='page'
-                    :value='page'
-                >
-                    {{ page }}
-                </option>
-            </select>
-        </template>
+        <PdfPagePicker v-if='sheetUi.pageThumbs' />
+
+        <button
+            v-else-if='sheetUi.pageCount > 1 && sheetUi.hasSheet'
+            type='button'
+            class='btn btn-outline-secondary mb-3'
+            :disabled='sheetUi.busy'
+            @click='openPagePicker'
+        >
+            Change PDF page ({{ sheetUi.page }} of {{ sheetUi.pageCount }})
+        </button>
 
         <label
             class='form-label'
@@ -95,7 +86,7 @@
             </button>
             <button
                 type='button'
-                class='btn btn-outline-primary'
+                class='btn btn-success'
                 :disabled='!canExport'
                 @click='openMissionPicker'
             >
@@ -164,6 +155,7 @@
 <script setup lang='ts'>
 import { computed, onMounted } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
+import PdfPagePicker from './PdfPagePicker.vue';
 import {
     bind,
     clearSheet,
@@ -171,7 +163,7 @@ import {
     downloadCurrent,
     loadUserFile,
     openMissionPicker,
-    setPdfPage,
+    openPagePicker,
     uploadCurrent,
 } from './sheet.ts';
 import { sheetUi } from './ui-state.ts';
@@ -179,12 +171,6 @@ import { sheetUi } from './ui-state.ts';
 const props = defineProps<{
     api: PluginAPI;
 }>();
-
-const pages = computed(() => {
-    const list: number[] = [];
-    for (let page = 1; page <= sheetUi.pageCount; page++) list.push(page);
-    return list;
-});
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
@@ -200,12 +186,6 @@ function onFile(event: Event): void {
     const file = target.files?.[0];
     target.value = '';
     if (file) void loadUserFile(file);
-}
-
-function onPage(event: Event): void {
-    const target = event.target;
-    if (!(target instanceof HTMLSelectElement)) return;
-    void setPdfPage(Number(target.value));
 }
 
 function onName(event: Event): void {

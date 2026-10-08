@@ -6,10 +6,11 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 
 ## What it does
 
-* Open **Rubber Sheet** from the right-side menu and choose a PNG, JPEG, WebP, GIF, or PDF. A multi-page PDF asks which page to use.
+* Open **Rubber Sheet** from the right-side menu and choose a PNG, JPEG, WebP, GIF, or PDF. A multi-page PDF shows page previews so you can pick which page to use.
 * The sheet is placed in the center of the current view, north-up, covering about a quarter of the view.
-* Drag a corner to warp that corner. Shift-drag a corner to scale the whole sheet about the opposite corner. Drag the blue knob to rotate. Drag the image to move it.
-* A transparency slider sits at the bottom of the map, from 0 to 100. It remembers the last value, and starts at 100 the first time.
+* Drag a corner to warp that corner. Shift-drag a corner to scale the whole sheet about the opposite corner. Alt-drag (or Shift+Alt) to scale from the center. Drag the blue knob to rotate. Drag the image to move it.
+* An opacity slider sits at the bottom of the map, from 0% (transparent) to 100% (fully visible). Scroll the wheel over it to change by 5%. It remembers the last value, and starts at 100% the first time.
+* **Cancel** in the plugin header clears the sheet. Closing the sidebar leaves the sheet on the map so you can keep editing.
 * **Export File Type** is required: KMZ, GeoTIFF, GeoPDF, or a zipped bundle of all three.
 * **Download** saves that file. **Upload to Data Sync** attaches it to a data sync you are subscribed to and can edit.
 * Imagery is JPEG quality 85. A picture that already has transparent pixels stays PNG inside the KMZ. GeoTIFF and GeoPDF are a north-up copy of the fitted sheet, at most 4096 px on the long side, so they match what you see even though those formats cannot store a four-corner warp. The KMZ keeps the exact corners with a KML `gx:LatLonQuad`.

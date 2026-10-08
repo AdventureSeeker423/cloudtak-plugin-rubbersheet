@@ -57,12 +57,11 @@ function fromMeters(east: number, north: number, origin: LngLat): LngLat {
 }
 
 /**
- * Uniform scale of the whole quad about the opposite corner.
+ * Uniform scale of the whole quad about an anchor point.
  * The dragged corner stays on its original ray from that anchor.
  * Scale is clamped so the sheet cannot flip or collapse.
  */
-export function scaleAboutOpposite(quad: Quad, corner: CornerIndex, cursor: LngLat): Quad {
-    const anchor = quad[oppositeCorner(corner)];
+function scaleAboutAnchor(quad: Quad, corner: CornerIndex, cursor: LngLat, anchor: LngLat): Quad {
     const old = toMeters(quad[corner], anchor);
     const next = toMeters(cursor, anchor);
     const denom = old[0] * old[0] + old[1] * old[1];
@@ -75,6 +74,16 @@ export function scaleAboutOpposite(quad: Quad, corner: CornerIndex, cursor: LngL
         const meters = toMeters(point, anchor);
         return fromMeters(meters[0] * scale, meters[1] * scale, anchor);
     }) as Quad;
+}
+
+/** Uniform scale of the whole quad about the opposite corner. */
+export function scaleAboutOpposite(quad: Quad, corner: CornerIndex, cursor: LngLat): Quad {
+    return scaleAboutAnchor(quad, corner, cursor, quad[oppositeCorner(corner)]);
+}
+
+/** Uniform scale of the whole quad about its centroid. */
+export function scaleAboutCenter(quad: Quad, corner: CornerIndex, cursor: LngLat): Quad {
+    return scaleAboutAnchor(quad, corner, cursor, centroid(quad));
 }
 
 /** Rotate every corner around the quad centroid. Positive radians are counter-clockwise in east/north space. */

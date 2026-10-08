@@ -8,6 +8,7 @@ import {
     pointInQuad,
     quadForView,
     rotateAroundCenter,
+    scaleAboutCenter,
     scaleAboutOpposite,
     translateQuad,
     type CornerIndex,
@@ -19,7 +20,7 @@ import { makeExport } from './make-export.ts';
 import { listWritableMissions, uploadMissionFile } from './missions.ts';
 import { opacityState, watchOpacity } from './opacity.ts';
 import OpacityBar from './OpacityBar.vue';
-import { closePdf, openPdf, renderPdfPage } from './pdf-render.ts';
+import { closePdf, openPdf, renderPdfPage, renderPdfThumbnail } from './pdf-render.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
 import type { Raster } from './warp.ts';
 
@@ -45,6 +46,11 @@ let listening = false;
 function mapOrThrow(): MapLibreMap {
     if (!host) throw new Error('The map is not ready yet');
     return host.map;
+}
+
+function releaseImageUrl(): void {
+    if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
+    imageUrl = null;
 }
 
 function pointerToLngLat(event: PointerEvent): LngLat {
@@ -182,7 +188,9 @@ function startCorner(event: PointerEvent, index: CornerIndex): void {
     const origin = cloneQuad(quad);
     trackPointer(event, (ev) => {
         const cursor = pointerToLngLat(ev);
-        if (ev.shiftKey) {
+        if (ev.altKey) {
+            quad = scaleAboutCenter(origin, index, cursor);
+        } else if (ev.shiftKey) {
             quad = scaleAboutOpposite(origin, index, cursor);
         } else {
             const next = cloneQuad(origin);
@@ -226,7 +234,7 @@ function ensureMarkers(): void {
     const corners: CornerIndex[] = [0, 1, 2, 3];
     markers = corners.map((index) => {
         const element = handleElement(
-            'Drag to move this corner. Shift-drag to scale the whole sheet.',
+            'Drag to move this corner. Shift-drag to scale about the opposite corner. Alt-drag to scale from the center.',
             '#ffffff',
         );
         element.addEventListener('pointerdown', (event) => startCorner(event, index));
@@ -268,6 +276,34 @@ function applyOpacity(value: number): void {
     }
 }
 
+function attachRasterLayer(): void {
+    if (!host || !quad || !imageUrl) return;
+    const map = host.map;
+    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
+    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+    map.addSource(SOURCE_ID, {
+        type: 'image',
+        url: imageUrl,
+        coordinates: quad,
+    });
+    map.addLayer({
+        id: LAYER_ID,
+        type: 'raster',
+        source: SOURCE_ID,
+        paint: {
+            'raster-opacity': opacityState.value / 100,
+            'raster-fade-duration': 0,
+        },
+    });
+}
+
+function onStyleLoad(): void {
+    if (!imageUrl || !quad || !source) return;
+    attachRasterLayer();
+    ensureBar();
+    sync();
+}
+
 async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promise<void> {
     const map = mapOrThrow();
     source = rasterFromCanvas(canvas);
@@ -285,38 +321,33 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
             source.height,
         );
     }
-    const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((next) => {
-            if (next) resolve(next);
-            else reject(new Error('Could not place the image'));
-        }, 'image/png');
-    });
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-    imageUrl = URL.createObjectURL(blob);
-    if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
-    if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
-    map.addSource(SOURCE_ID, {
-        type: 'image',
-        url: imageUrl,
-        coordinates: quad,
-    });
-    map.addLayer({
-        id: LAYER_ID,
-        type: 'raster',
-        source: SOURCE_ID,
-        paint: {
-            'raster-opacity': opacityState.value / 100,
-            'raster-fade-duration': 0,
-        },
-    });
+    releaseImageUrl();
+    imageUrl = canvas.toDataURL('image/png');
+    attachRasterLayer();
     ensureMarkers();
     sync();
     ensureBar();
     sheetUi.hasSheet = true;
+    sheetUi.pageThumbs = null;
 }
 
 function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
+}
+
+async function loadPageThumbs(count: number): Promise<void> {
+    sheetUi.pageThumbs = Array.from({ length: count }, () => null);
+    for (let page = 1; page <= count; page++) {
+        if (sheetUi.pageThumbs === null) return;
+        try {
+            const thumb = await renderPdfThumbnail(page);
+            if (sheetUi.pageThumbs === null) return;
+            sheetUi.pageThumbs[page - 1] = thumb;
+        } catch {
+            if (sheetUi.pageThumbs === null) return;
+            sheetUi.pageThumbs[page - 1] = '';
+        }
+    }
 }
 
 export function bind(next: SheetHost): void {
@@ -327,6 +358,7 @@ export function bind(next: SheetHost): void {
     host.map.on('mousedown', onMapMouseDown);
     host.map.on('touchstart', onTouchStart);
     host.map.on('move', onMapMove);
+    host.map.on('style.load', onStyleLoad);
     listening = true;
 }
 
@@ -335,6 +367,7 @@ export function detach(): void {
         host.map.off('mousedown', onMapMouseDown);
         host.map.off('touchstart', onTouchStart);
         host.map.off('move', onMapMove);
+        host.map.off('style.load', onStyleLoad);
         listening = false;
     }
     clearMap();
@@ -350,19 +383,20 @@ function clearMap(): void {
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     }
     removeMarkers();
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-    imageUrl = null;
+    releaseImageUrl();
     quad = null;
     source = null;
     sheetUi.hasSheet = false;
     sheetUi.page = 1;
     sheetUi.pageCount = 1;
+    sheetUi.pageThumbs = null;
     sheetUi.missions = null;
 }
 
 export async function clearSheet(): Promise<void> {
     clearMap();
     hideBar();
+    sheetUi.name = '';
     sheetUi.error = '';
     sheetUi.status = '';
     await closePdf();
@@ -372,6 +406,7 @@ export async function loadUserFile(file: File): Promise<void> {
     sheetUi.error = '';
     sheetUi.status = '';
     sheetUi.missions = null;
+    sheetUi.pageThumbs = null;
     sheetUi.busy = true;
     try {
         sheetUi.name = fileBaseName(file.name);
@@ -379,6 +414,11 @@ export async function loadUserFile(file: File): Promise<void> {
             const pages = await openPdf(await file.arrayBuffer());
             sheetUi.pageCount = pages;
             sheetUi.page = 1;
+            if (pages > 1) {
+                sheetUi.busy = false;
+                void loadPageThumbs(pages);
+                return;
+            }
             await showCanvas(await renderPdfPage(1), true);
             return;
         }
@@ -395,18 +435,28 @@ export async function loadUserFile(file: File): Promise<void> {
 }
 
 export async function setPdfPage(page: number): Promise<void> {
-    if (sheetUi.pageCount < 2) return;
+    if (sheetUi.pageCount < 1) return;
     const next = Math.min(sheetUi.pageCount, Math.max(1, page));
+    const resetQuad = !sheetUi.hasSheet;
     sheetUi.busy = true;
     sheetUi.error = '';
     try {
-        await showCanvas(await renderPdfPage(next), false);
+        await showCanvas(await renderPdfPage(next), resetQuad);
         sheetUi.page = next;
     } catch (err) {
         sheetUi.error = message(err);
     } finally {
         sheetUi.busy = false;
     }
+}
+
+export function openPagePicker(): void {
+    if (sheetUi.pageCount < 2 || sheetUi.busy) return;
+    void loadPageThumbs(sheetUi.pageCount);
+}
+
+export function closePagePicker(): void {
+    sheetUi.pageThumbs = null;
 }
 
 async function currentFile(): Promise<{ filename: string; bytes: Uint8Array; mime: string }> {

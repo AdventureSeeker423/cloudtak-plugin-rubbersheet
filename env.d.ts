@@ -20,6 +20,11 @@ declare module '*.mjs?url' {
     export default url;
 }
 
+declare module '*.mjs?raw' {
+    const content: string;
+    export default content;
+}
+
 declare module 'pdfjs-dist/legacy/build/pdf.mjs' {
     interface PdfViewport {
         width: number;
