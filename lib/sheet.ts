@@ -52,6 +52,13 @@ let listening = false;
 let modListening = false;
 let shiftHeld = false;
 let altHeld = false;
+/** Active corner drag — mode follows Shift/Alt even after pointer-down. */
+let cornerDrag: {
+    index: CornerIndex;
+    origin: Quad;
+    target: HTMLElement;
+    lastCursor: LngLat;
+} | null = null;
 
 /** Diagonal resize cursors read as scale handles for each corner. */
 const SCALE_CURSOR: Record<CornerIndex, string> = {
@@ -120,6 +127,7 @@ function onMapMove(): void {
 function endPan(): void {
     if (!host) return;
     dragging = false;
+    cornerDrag = null;
     if (restorePan) host.map.dragPan.enable();
     restorePan = false;
 }
@@ -204,7 +212,21 @@ function trackPointer(event: PointerEvent, onMove: (ev: PointerEvent) => void): 
 }
 
 function scaleModeActive(ev?: { shiftKey?: boolean; altKey?: boolean }): boolean {
-    return !!(ev?.altKey || ev?.shiftKey || altHeld || shiftHeld);
+    return cornerDragMode(ev) !== 'corner';
+}
+
+function cornerDragMode(ev?: { shiftKey?: boolean; altKey?: boolean }): 'center' | 'opposite' | 'corner' {
+    if (ev?.altKey || altHeld) return 'center';
+    if (ev?.shiftKey || shiftHeld) return 'opposite';
+    return 'corner';
+}
+
+function applyCornerDrag(mode: 'center' | 'opposite' | 'corner', origin: Quad, index: CornerIndex, cursor: LngLat): Quad {
+    if (mode === 'center') return scaleAboutCenter(origin, index, cursor);
+    if (mode === 'opposite') return scaleAboutOpposite(origin, index, cursor);
+    const next = cloneQuad(origin);
+    next[index] = cursor;
+    return next;
 }
 
 function cornerCursor(index: CornerIndex, scale: boolean): string {
@@ -214,19 +236,33 @@ function cornerCursor(index: CornerIndex, scale: boolean): string {
 function refreshCornerCursors(ev?: { shiftKey?: boolean; altKey?: boolean }): void {
     const scale = scaleModeActive(ev);
     markers.forEach((marker, index) => {
-        marker.getElement().style.cursor = cornerCursor(index as CornerIndex, scale);
+        const el = marker.getElement();
+        if (cornerDrag && cornerDrag.index === index) {
+            el.style.cursor = scale ? SCALE_CURSOR[index] : 'grabbing';
+            return;
+        }
+        el.style.cursor = cornerCursor(index as CornerIndex, scale);
     });
 }
 
 function onModifierKey(event: KeyboardEvent): void {
     shiftHeld = event.shiftKey;
     altHeld = event.altKey;
+    if (cornerDrag) {
+        const mode = cornerDragMode(event);
+        quad = applyCornerDrag(mode, cornerDrag.origin, cornerDrag.index, cornerDrag.lastCursor);
+        sync();
+    }
     refreshCornerCursors(event);
 }
 
 function onWindowBlur(): void {
     shiftHeld = false;
     altHeld = false;
+    if (cornerDrag) {
+        quad = applyCornerDrag('corner', cornerDrag.origin, cornerDrag.index, cornerDrag.lastCursor);
+        sync();
+    }
     refreshCornerCursors();
 }
 
@@ -250,25 +286,19 @@ function unlistenModifiers(): void {
 
 function startCorner(event: PointerEvent, index: CornerIndex): void {
     if (!quad) return;
-    const origin = cloneQuad(quad);
-    // Lock the mode at pointer-down so a mid-drag Shift/Alt press cannot switch
-    // a plain warp into a scale.
-    const mode = event.altKey ? 'center' : event.shiftKey ? 'opposite' : 'corner';
     const target = event.currentTarget;
-    if (target instanceof HTMLElement) {
-        target.style.cursor = mode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
-    }
+    if (!(target instanceof HTMLElement)) return;
+    const origin = cloneQuad(quad);
+    const startCursor = pointerToLngLat(event);
+    cornerDrag = { index, origin, target, lastCursor: startCursor };
+    const mode = cornerDragMode(event);
+    target.style.cursor = mode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
     trackPointer(event, (ev) => {
-        const cursor = pointerToLngLat(ev);
-        if (mode === 'center') {
-            quad = scaleAboutCenter(origin, index, cursor);
-        } else if (mode === 'opposite') {
-            quad = scaleAboutOpposite(origin, index, cursor);
-        } else {
-            const next = cloneQuad(origin);
-            next[index] = cursor;
-            quad = next;
-        }
+        if (!cornerDrag) return;
+        cornerDrag.lastCursor = pointerToLngLat(ev);
+        const nextMode = cornerDragMode(ev);
+        target.style.cursor = nextMode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
+        quad = applyCornerDrag(nextMode, cornerDrag.origin, index, cornerDrag.lastCursor);
         sync();
     });
 }
@@ -324,7 +354,7 @@ function ensureMarkers(): void {
     const corners: CornerIndex[] = [0, 1, 2, 3];
     markers = corners.map((index) => {
         const element = handleElement(
-            'Drag to move this corner. Shift-drag to scale about the opposite corner. Alt-drag to scale from the center.',
+            'Drag to move this corner. Hold Shift to scale about the opposite corner, or Alt to scale from the center (works mid-drag).',
             '#ffffff',
         );
         element.style.cursor = cornerCursor(index, scaleModeActive());
