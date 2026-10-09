@@ -9,6 +9,7 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 * Open **Rubber Sheet** from the right-side menu and choose a PNG, JPEG, WebP, GIF, or PDF. A multi-page PDF shows page previews so you can pick which page to use.
 * The sheet is placed in the center of the current view, north-up, covering about a quarter of the view.
 * Drag a corner to warp that corner. Shift-drag a corner to scale the whole sheet about the opposite corner. Alt-drag (or Shift+Alt) to scale from the center. Drag the rotate icon to rotate. Drag the image to move it.
+* **Edit Image** opens a source-pixel editor: magic wand (contiguous color → transparent, with tolerance) and eraser brush. Undo/Redo with Ctrl/Cmd+Z and Ctrl+Y (or Ctrl/Cmd+Shift+Z). Apply keeps your map corners; Cancel discards the edit session.
 * An opacity slider sits at the bottom of the map, from 0% (transparent) to 100% (fully visible). Scroll the wheel over it to change by 5%. It remembers the last value, and starts at 100% the first time.
 * **Cancel** in the plugin header clears the sheet. Closing the sidebar leaves the sheet on the map so you can keep editing.
 * **Export File Type** is required for Download / Data Sync: KMZ, GeoTIFF, GeoPDF, or a zipped bundle of all three.

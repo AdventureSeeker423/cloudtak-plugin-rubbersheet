@@ -1,9 +1,20 @@
 <template>
-    <div class='p-3'>
+    <ImageEditor
+        v-if='editing && editSource'
+        class='rubber-edit-pane'
+        :source='editSource'
+        @apply='onEditApply'
+        @cancel='onEditCancel'
+    />
+    <div
+        v-else
+        class='p-3'
+    >
         <p class='text-secondary mb-3'>
             Drag a corner to warp the sheet. Shift-drag a corner to scale about
             the opposite corner. Alt-drag (or Shift+Alt) to scale from the center.
             Drag the rotate icon to rotate, or drag the image to move it.
+            Use Edit Image to clear backgrounds with the wand or eraser.
         </p>
 
         <label
@@ -29,6 +40,16 @@
             @click='openPagePicker'
         >
             Change PDF page ({{ sheetUi.page }} of {{ sheetUi.pageCount }})
+        </button>
+
+        <button
+            v-if='sheetUi.hasSheet'
+            type='button'
+            class='btn btn-outline-primary mb-3 w-100'
+            :disabled='sheetUi.busy'
+            @click='openEditor'
+        >
+            Edit Image
         </button>
 
         <label
@@ -161,15 +182,18 @@
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref, shallowRef } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
+import ImageEditor from './ImageEditor.vue';
 import PdfPagePicker from './PdfPagePicker.vue';
 import {
     addCurrentAsOverlay,
+    applyEditedCanvas,
     bind,
     clearSheet,
     closeMissionPicker,
     downloadCurrent,
+    getEditSnapshot,
     loadUserFile,
     openMissionPicker,
     openPagePicker,
@@ -181,6 +205,9 @@ const props = defineProps<{
     api: PluginAPI;
 }>();
 
+const editing = ref(false);
+const editSource = shallowRef<HTMLCanvasElement | null>(null);
+
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
 });
@@ -188,6 +215,31 @@ const canExport = computed(() => {
 onMounted(() => {
     bind(props.api);
 });
+
+function openEditor(): void {
+    const snap = getEditSnapshot();
+    if (!snap) return;
+    editSource.value = snap;
+    editing.value = true;
+    sheetUi.error = '';
+    sheetUi.status = '';
+}
+
+function onEditApply(canvas: HTMLCanvasElement): void {
+    try {
+        applyEditedCanvas(canvas);
+        sheetUi.status = 'Image edits applied';
+    } catch (err) {
+        sheetUi.error = err instanceof Error ? err.message : String(err);
+    }
+    editing.value = false;
+    editSource.value = null;
+}
+
+function onEditCancel(): void {
+    editing.value = false;
+    editSource.value = null;
+}
 
 function onAddOverlay(): void {
     void addCurrentAsOverlay(() => {
@@ -218,3 +270,10 @@ function onFormat(event: Event): void {
     }
 }
 </script>
+
+<style scoped>
+.rubber-edit-pane {
+    height: calc(100vh - 120px);
+    min-height: 420px;
+}
+</style>

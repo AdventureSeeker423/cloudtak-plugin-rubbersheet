@@ -360,6 +360,28 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
     sheetUi.pageThumbs = null;
 }
 
+/** Clone of the current sheet canvas for the image editor. */
+export function getEditSnapshot(): HTMLCanvasElement | null {
+    if (!overlayCanvas) return null;
+    const clone = document.createElement('canvas');
+    clone.width = overlayCanvas.width;
+    clone.height = overlayCanvas.height;
+    const ctx = clone.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(overlayCanvas, 0, 0);
+    return clone;
+}
+
+/** Push edited pixels to the map without resetting corners. */
+export function applyEditedCanvas(canvas: HTMLCanvasElement): void {
+    if (!host || !quad) throw new Error('The map is not ready yet');
+    source = rasterFromCanvas(canvas);
+    overlayCanvas = canvas;
+    attachRasterLayer();
+    sync();
+    sheetUi.hasSheet = true;
+}
+
 function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
 }
