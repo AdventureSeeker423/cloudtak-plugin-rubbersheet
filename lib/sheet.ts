@@ -5,7 +5,7 @@ import { BOTTOM_KEY, LAYER_ID, SOURCE_ID } from './constants.ts';
 import {
     cloneQuad,
     centroid,
-    pointInQuad,
+    opaqueAtPoint,
     quadForView,
     rotateAroundCenter,
     scaleAboutCenter,
@@ -15,6 +15,7 @@ import {
     type LngLat,
     type Quad,
 } from './geometry.ts';
+import type { EditHistorySnapshot } from './edit-history.ts';
 import { canvasFromImageFile, fileBaseName, isImage, isPdf, rasterFromCanvas } from './image-file.ts';
 import { makeExport } from './make-export.ts';
 import { listWritableMissions, uploadMissionFile } from './missions.ts';
@@ -38,6 +39,10 @@ let quad: Quad | null = null;
 let source: Raster | null = null;
 /** Canvas fed to a MapLibre canvas source (no URL fetch — CSP blocks data:/blob: connect-src). */
 let overlayCanvas: HTMLCanvasElement | null = null;
+/** Pixels from the first load of this sheet — Revert target across edit sessions. */
+let pristineRgba: Uint8Array | null = null;
+/** Undo/redo stacks persisted when the image editor saves. */
+let savedEditHistory: EditHistorySnapshot | null = null;
 let markers: Marker[] = [];
 let knob: Marker | null = null;
 let barOn = false;
@@ -156,11 +161,16 @@ function beginMove(start: LngLat): void {
     map.on('touchend', up);
 }
 
+function hitSheet(point: LngLat): boolean {
+    if (!quad || !source) return false;
+    return opaqueAtPoint(source.rgba, source.width, source.height, quad, point);
+}
+
 function onMapMouseDown(event: MapMouseEvent): void {
     if (!quad || !source || dragging) return;
     if (event.originalEvent.button !== 0) return;
     const point: LngLat = [event.lngLat.lng, event.lngLat.lat];
-    if (!pointInQuad(quad, source.width, source.height, point)) return;
+    if (!hitSheet(point)) return;
     event.preventDefault();
     beginMove(point);
 }
@@ -169,7 +179,7 @@ function onTouchStart(event: MapTouchEvent): void {
     if (!quad || !source || dragging) return;
     if (event.originalEvent.touches.length !== 1) return;
     const point: LngLat = [event.lngLat.lng, event.lngLat.lat];
-    if (!pointInQuad(quad, source.width, source.height, point)) return;
+    if (!hitSheet(point)) return;
     event.preventDefault();
     beginMove(point);
 }
@@ -410,6 +420,9 @@ function onStyleLoad(): void {
 async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promise<void> {
     const map = mapOrThrow();
     source = rasterFromCanvas(canvas);
+    // New file / PDF page — reset pristine original and edit history.
+    pristineRgba = source.rgba.slice();
+    savedEditHistory = null;
     const bounds = map.getBounds();
     const center = map.getCenter();
     if (resetQuad || !quad) {
@@ -433,23 +446,58 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
     sheetUi.pageThumbs = null;
 }
 
-/** Clone of the current sheet canvas for the image editor. */
-export function getEditSnapshot(): HTMLCanvasElement | null {
-    if (!overlayCanvas) return null;
+export type EditSession = {
+    source: HTMLCanvasElement;
+    pristine: Uint8Array;
+    history: EditHistorySnapshot | null;
+};
+
+/** Current sheet canvas plus pristine original / undo stacks for the image editor. */
+export function getEditSession(): EditSession | null {
+    if (!overlayCanvas || !source) return null;
     const clone = document.createElement('canvas');
     clone.width = overlayCanvas.width;
     clone.height = overlayCanvas.height;
     const ctx = clone.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(overlayCanvas, 0, 0);
-    return clone;
+    const pristine = pristineRgba && pristineRgba.length === source.rgba.length
+        ? pristineRgba.slice()
+        : source.rgba.slice();
+    return {
+        source: clone,
+        pristine,
+        history: savedEditHistory
+            ? {
+                past: savedEditHistory.past.map((entry) => entry.slice()),
+                future: savedEditHistory.future.map((entry) => entry.slice()),
+            }
+            : null,
+    };
 }
 
-/** Push edited pixels to the map without resetting corners. */
-export function applyEditedCanvas(canvas: HTMLCanvasElement): void {
+/** @deprecated use getEditSession */
+export function getEditSnapshot(): HTMLCanvasElement | null {
+    return getEditSession()?.source ?? null;
+}
+
+/** Push edited pixels to the map without resetting corners; keep pristine + undo. */
+export function applyEditedCanvas(
+    canvas: HTMLCanvasElement,
+    history?: EditHistorySnapshot | null,
+): void {
     if (!host || !quad) throw new Error('The map is not ready yet');
     source = rasterFromCanvas(canvas);
     overlayCanvas = canvas;
+    if (!pristineRgba || pristineRgba.length !== source.rgba.length) {
+        pristineRgba = source.rgba.slice();
+    }
+    savedEditHistory = history
+        ? {
+            past: history.past.map((entry) => entry.slice()),
+            future: history.future.map((entry) => entry.slice()),
+        }
+        : null;
     attachRasterLayer();
     sync();
     sheetUi.hasSheet = true;
@@ -508,6 +556,8 @@ function clearMap(): void {
     }
     removeMarkers();
     overlayCanvas = null;
+    pristineRgba = null;
+    savedEditHistory = null;
     quad = null;
     source = null;
     sheetUi.hasSheet = false;

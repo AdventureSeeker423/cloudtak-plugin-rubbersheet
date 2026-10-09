@@ -267,3 +267,22 @@ export function pointInQuad(quad: Quad, width: number, height: number, point: Ln
     const [u, v] = geoToPixel(quad, width, height, point);
     return u >= -epsilon && v >= -epsilon && u <= width + epsilon && v <= height + epsilon;
 }
+
+/**
+ * True when the geographic point maps to an opaque source pixel.
+ * Transparent / erased areas should let the map pan instead of moving the sheet.
+ */
+export function opaqueAtPoint(
+    rgba: Uint8Array,
+    width: number,
+    height: number,
+    quad: Quad,
+    point: LngLat,
+    minAlpha = 16,
+): boolean {
+    const [u, v] = geoToPixel(quad, width, height, point);
+    const x = Math.floor(u);
+    const y = Math.floor(v);
+    if (x < 0 || y < 0 || x >= width || y >= height) return false;
+    return rgba[(y * width + x) * 4 + 3] >= minAlpha;
+}

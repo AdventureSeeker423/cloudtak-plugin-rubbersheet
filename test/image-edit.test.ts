@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { colorSelect, eraseBrush, eraseMask, floodErase, floodSelect } from '../lib/image-edit.ts';
+import { colorSelect, eraseBrush, eraseMask, floodErase, floodSelect, rectSelect } from '../lib/image-edit.ts';
 
 function solid(width: number, height: number, r: number, g: number, b: number, a = 255): Uint8Array {
     const rgba = new Uint8Array(width * height * 4);
@@ -110,6 +110,26 @@ test('flood erase respects fuzziness', () => {
     assert.equal(alpha(rgba, w, 0, 0), 0);
     assert.equal(alpha(rgba, w, 1, 0), 0);
     assert.equal(alpha(rgba, w, 2, 0), 255);
+});
+
+test('rect select replace/add/subtract', () => {
+    const w = 4;
+    const h = 4;
+    const mask = new Uint8Array(w * h);
+    rectSelect(w, h, 0, 0, 1.9, 1.9, mask, 'replace');
+    assert.equal(mask[0], 1);
+    assert.equal(mask[1], 1);
+    assert.equal(mask[w], 1);
+    assert.equal(mask[w + 1], 1);
+    assert.equal(mask[2], 0);
+
+    rectSelect(w, h, 2, 2, 3, 3, mask, 'add');
+    assert.equal(mask[0], 1);
+    assert.equal(mask[2 * w + 2], 1);
+
+    rectSelect(w, h, 0, 0, 1, 1, mask, 'subtract');
+    assert.equal(mask[0], 0);
+    assert.equal(mask[2 * w + 2], 1);
 });
 
 test('color select finds matching pixels everywhere, not just contiguous', () => {

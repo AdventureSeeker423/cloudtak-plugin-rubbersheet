@@ -4,6 +4,7 @@ import {
     applyHomography,
     centroid,
     homography,
+    opaqueAtPoint,
     oppositeCorner,
     pointInQuad,
     quadForView,
@@ -87,6 +88,28 @@ test('a corner is inside the sheet', () => {
     const quad: Quad = [[0, 1], [1, 1], [1, 0], [0, 0]];
     assert.equal(pointInQuad(quad, 100, 50, [0, 1]), true);
     assert.equal(pointInQuad(quad, 100, 50, [2, 2], 0), false);
+});
+
+test('opaque hit test ignores transparent pixels inside the quad', () => {
+    const w = 4;
+    const h = 4;
+    const rgba = new Uint8Array(w * h * 4);
+    // Left half opaque white, right half cleared
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const o = (y * w + x) * 4;
+            if (x < 2) {
+                rgba[o] = 255;
+                rgba[o + 1] = 255;
+                rgba[o + 2] = 255;
+                rgba[o + 3] = 255;
+            }
+        }
+    }
+    const quad: Quad = [[0, 1], [1, 1], [1, 0], [0, 0]];
+    assert.equal(opaqueAtPoint(rgba, w, h, quad, [0.25, 0.5]), true);
+    assert.equal(opaqueAtPoint(rgba, w, h, quad, [0.75, 0.5]), false);
+    assert.equal(opaqueAtPoint(rgba, w, h, quad, [2, 2]), false);
 });
 
 test('the starting sheet is north-up and centered', () => {

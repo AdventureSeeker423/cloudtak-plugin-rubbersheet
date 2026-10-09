@@ -8,24 +8,58 @@ function roleType(role: unknown): string {
     return '';
 }
 
+function canWriteRole(role: unknown): boolean {
+    const type = roleType(role);
+    // Same filter as CloudTAK ShareToMission (role: 'MISSION_SUBSCRIBER').
+    return type === 'MISSION_OWNER' || type === 'MISSION_SUBSCRIBER';
+}
+
+async function getAuthToken(): Promise<string | undefined> {
+    try {
+        const caps = localStorage.getItem('CapacitorStorage.token');
+        if (caps) return caps;
+        const plain = localStorage.getItem('token');
+        if (plain) return plain;
+    } catch {
+        // Private browsing can reject storage.
+    }
+    return undefined;
+}
+
 /**
- * Subscribed data syncs the user can write to, from CloudTAK's local database.
- * Opening the database without a version does not create it. If CloudTAK has not
- * created it yet, this returns an empty list instead of inventing a new database.
+ * Data syncs the user can attach files to — matching Files → Share to Data Sync:
+ * local subscription rows with a write role (subscribed or not), merged with the
+ * server mission catalog so unsubscribed-but-visible syncs still appear.
  */
 export async function listWritableMissions(): Promise<MissionChoice[]> {
+    const byGuid = new Map<string, MissionChoice>();
+
+    for (const mission of await listLocalMissions()) {
+        byGuid.set(mission.guid, mission);
+    }
+
+    try {
+        for (const mission of await listServerMissions()) {
+            const existing = byGuid.get(mission.guid);
+            byGuid.set(mission.guid, {
+                guid: mission.guid,
+                name: mission.name,
+                token: existing?.token ?? mission.token,
+            });
+        }
+    } catch {
+        // Offline / API failure — local list alone is still useful.
+    }
+
+    return [...byGuid.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function listLocalMissions(): Promise<MissionChoice[]> {
     const factory = indexedDB as IDBFactory & {
         databases?: () => Promise<Array<{ name?: string }>>;
     };
-    if (typeof factory.databases === 'function') {
-        const existing = await factory.databases();
-        if (!existing.some((db) => db.name === 'CloudTAK')) return [];
-    }
-    return readMissionDatabase();
-}
 
-function readMissionDatabase(): Promise<MissionChoice[]> {
-    return new Promise((resolve, reject) => {
+    const read = (): Promise<MissionChoice[]> => new Promise((resolve, reject) => {
         const request = indexedDB.open('CloudTAK');
         request.onupgradeneeded = () => {
             request.transaction?.abort();
@@ -60,23 +94,60 @@ function readMissionDatabase(): Promise<MissionChoice[]> {
                     const record = row as {
                         guid?: unknown;
                         name?: unknown;
-                        subscribed?: unknown;
                         token?: unknown;
                         role?: unknown;
                     };
-                    if (record.subscribed !== true) continue;
-                    const role = roleType(record.role);
-                    if (role !== 'MISSION_OWNER' && role !== 'MISSION_SUBSCRIBER') continue;
+                    // Native ShareToMission does not require subscribed === true.
+                    if (!canWriteRole(record.role)) continue;
                     if (typeof record.guid !== 'string' || typeof record.name !== 'string') continue;
                     const token = typeof record.token === 'string' && record.token ? record.token : undefined;
                     missions.push({ guid: record.guid, name: record.name, token });
                 }
-                missions.sort((a, b) => a.name.localeCompare(b.name));
                 db.close();
                 resolve(missions);
             };
         };
     });
+
+    if (typeof factory.databases !== 'function') return read();
+    return factory.databases().then((existing) => {
+        if (!existing.some((db) => db.name === 'CloudTAK')) return [];
+        return read();
+    }).catch(() => []);
+}
+
+async function listServerMissions(): Promise<MissionChoice[]> {
+    const token = await getAuthToken();
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+
+    const response = await fetch(
+        '/api/marti/mission?passwordProtected=true&defaultRole=true&sort=createTime&order=desc',
+        {
+            credentials: 'same-origin',
+            headers,
+        },
+    );
+    if (!response.ok) {
+        const text = (await response.text()).trim();
+        throw new Error(text || `Could not list data syncs (${response.status})`);
+    }
+
+    const body = await response.json() as {
+        items?: Array<{
+            guid?: unknown;
+            name?: unknown;
+            defaultRole?: unknown;
+        }>;
+    };
+
+    const missions: MissionChoice[] = [];
+    for (const item of body.items ?? []) {
+        if (typeof item.guid !== 'string' || typeof item.name !== 'string') continue;
+        // Server catalog is the same set Menu → Data Sync shows; upload enforces write access.
+        missions.push({ guid: item.guid, name: item.name });
+    }
+    return missions;
 }
 
 export async function uploadMissionFile(mission: MissionChoice, file: {
@@ -88,6 +159,8 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
     const headers: Record<string, string> = {
         'Content-Type': file.mime,
     };
+    const token = await getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
     if (mission.token) headers.MissionAuthorization = mission.token;
 
     const body = file.bytes.buffer.slice(
@@ -104,6 +177,13 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
 
     if (!response.ok) {
         const text = (await response.text()).trim();
-        throw new Error(text || `Upload failed (${response.status})`);
+        let message = text || `Upload failed (${response.status})`;
+        try {
+            const json = JSON.parse(text) as { message?: string };
+            if (json.message) message = json.message;
+        } catch {
+            // not JSON
+        }
+        throw new Error(message);
     }
 }

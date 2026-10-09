@@ -1,7 +1,8 @@
 /**
- * Upload a file through CloudTAK Imports and register it as a profile overlay,
+ * Upload a GeoTIFF through CloudTAK Imports and register it as a profile overlay,
  * matching the Files menu "Add to Map as Overlay" flow:
- * PUT /api/import → wait for Success → wait for .pmtiles TileJSON → POST /api/profile/overlay
+ * PUT /api/import → wait for Success → wait for .pmtiles TileJSON →
+ * OverlayManager.createLoaded (API + local overlay stack).
  *
  * Note: there is no GET /api/profile/asset/:id metadata route — poll
  * GET /api/profile/asset/:id.pmtiles/tile until Cloud Optimized tiles exist.
@@ -189,29 +190,69 @@ async function waitForTileJson(assetId: string): Promise<{ type: 'raster' | 'vec
     throw new Error('Timed out waiting for Cloud Optimized tiles');
 }
 
+type OverlayCreateBody = {
+    url: string;
+    name: string;
+    mode: 'profile';
+    mode_id: string;
+    type: 'raster' | 'vector';
+    visible: boolean;
+    opacity: number;
+};
+
+function isModuleLoadError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    return /Failed to fetch dynamically imported module|Cannot find module|Failed to resolve|Module not found/i.test(message);
+}
+
+/**
+ * CloudTAK's overlay menu / map stack only show layers loaded through
+ * OverlayManager.createLoaded (API + IndexedDB + map). A bare POST leaves the
+ * file in Files but never attaches it to the live overlay list.
+ *
+ * Resolved by the CloudTAK Vite app when this plugin lives under app/plugins/.
+ */
+async function createLoadedOverlay(body: OverlayCreateBody): Promise<void> {
+    const mod = await import('../../../src/base/overlay.ts') as {
+        default: { createLoaded: (body: OverlayCreateBody) => Promise<unknown> };
+    };
+    await mod.default.createLoaded(body);
+}
+
 async function createProfileOverlay(opts: {
     url: string;
     name: string;
+    modeId: string;
     type: 'raster' | 'vector';
 }): Promise<void> {
+    const body: OverlayCreateBody = {
+        url: opts.url,
+        name: opts.name,
+        mode: 'profile',
+        mode_id: opts.modeId,
+        type: opts.type,
+        visible: true,
+        opacity: 1,
+    };
+
+    try {
+        await createLoadedOverlay(body);
+        return;
+    } catch (err) {
+        if (!isModuleLoadError(err)) throw err;
+    }
+
+    // Standalone / test fallback — API only (will not appear in the live menu).
     const response = await apiFetch('/api/profile/overlay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            url: opts.url,
-            name: opts.name,
-            mode: 'profile',
-            mode_id: opts.name,
-            type: opts.type,
-            visible: true,
-            opacity: 1,
-        }),
+        body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(await readError(response));
 }
 
 /**
- * Import a file (KMZ preferred) into CloudTAK and add it as a map overlay.
+ * Import a GeoTIFF into CloudTAK and add it as a map overlay (Files menu flow).
  */
 export async function importAsOverlay(
     file: { filename: string; bytes: Uint8Array; mime: string },
@@ -228,9 +269,11 @@ export async function importAsOverlay(
     const tiles = await waitForTileJson(assetId);
 
     onStatus?.('Adding overlay…');
+    const overlayName = name.trim() || file.filename.replace(/\.[^.]+$/, '') || 'rubber-sheet';
     await createProfileOverlay({
         url: tiles.url,
-        name: name.trim() || file.filename.replace(/\.[^.]+$/, '') || 'rubber-sheet',
+        name: overlayName,
+        modeId: file.filename,
         type: tiles.type,
     });
 }

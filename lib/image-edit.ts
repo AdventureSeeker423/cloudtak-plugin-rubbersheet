@@ -107,6 +107,41 @@ export function floodSelect(
 }
 
 /**
+ * Rectangular selection in image pixel space (inclusive bounds after floor/ceil).
+ * `replace` clears first; `add` unions; `subtract` removes.
+ */
+export function rectSelect(
+    width: number,
+    height: number,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    mask: Uint8Array,
+    mode: FloodSelectMode = 'replace',
+): number {
+    const left = Math.max(0, Math.min(Math.floor(Math.min(x0, x1)), width - 1));
+    const right = Math.max(0, Math.min(Math.floor(Math.max(x0, x1)), width - 1));
+    const top = Math.max(0, Math.min(Math.floor(Math.min(y0, y1)), height - 1));
+    const bottom = Math.max(0, Math.min(Math.floor(Math.max(y0, y1)), height - 1));
+
+    if (mode === 'replace') mask.fill(0);
+
+    if (right < left || bottom < top) return countMask(mask);
+
+    for (let y = top; y <= bottom; y++) {
+        const row = y * width;
+        for (let x = left; x <= right; x++) {
+            const i = row + x;
+            if (mode === 'subtract') mask[i] = 0;
+            else mask[i] = 1;
+        }
+    }
+
+    return countMask(mask);
+}
+
+/**
  * Select every opaque pixel whose RGB is within fuzziness of (r, g, b),
  * anywhere in the image (not just contiguous).
  */

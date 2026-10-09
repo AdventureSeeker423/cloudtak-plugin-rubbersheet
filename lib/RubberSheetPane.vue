@@ -1,7 +1,9 @@
 <template>
     <ImageEditor
-        v-if='editing && editSource'
+        v-if='editing && editSource && editPristine'
         :source='editSource'
+        :pristine='editPristine'
+        :history='editHistory'
         @apply='onEditApply'
         @cancel='onEditCancel'
     />
@@ -151,23 +153,25 @@
                 v-if='sheetUi.missions.length === 0'
                 class='mb-2'
             >
-                No data sync you can write to. Subscribe to one first.
+                No data syncs available to upload to.
             </p>
-            <div
-                v-else
-                class='d-grid gap-2'
-            >
-                <button
-                    v-for='mission in sheetUi.missions'
-                    :key='mission.guid'
-                    type='button'
-                    class='btn btn-outline-primary'
-                    :disabled='sheetUi.busy'
-                    @click='uploadCurrent(mission)'
-                >
-                    {{ mission.name }}
-                </button>
-            </div>
+            <template v-else>
+                <p class='text-secondary small mb-2'>
+                    Choose a data sync (same list as Share → Data Sync).
+                </p>
+                <div class='d-grid gap-2'>
+                    <button
+                        v-for='mission in sheetUi.missions'
+                        :key='mission.guid'
+                        type='button'
+                        class='btn btn-outline-primary'
+                        :disabled='sheetUi.busy'
+                        @click='uploadCurrent(mission)'
+                    >
+                        {{ mission.name }}
+                    </button>
+                </div>
+            </template>
             <button
                 type='button'
                 class='btn btn-link px-0 mt-2'
@@ -185,6 +189,7 @@ import { computed, onMounted, ref, shallowRef } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import ImageEditor from './ImageEditor.vue';
 import PdfPagePicker from './PdfPagePicker.vue';
+import type { EditHistorySnapshot } from './edit-history.ts';
 import {
     addCurrentAsOverlay,
     applyEditedCanvas,
@@ -192,7 +197,7 @@ import {
     clearSheet,
     closeMissionPicker,
     downloadCurrent,
-    getEditSnapshot,
+    getEditSession,
     loadUserFile,
     openMissionPicker,
     openPagePicker,
@@ -206,6 +211,8 @@ const props = defineProps<{
 
 const editing = ref(false);
 const editSource = shallowRef<HTMLCanvasElement | null>(null);
+const editPristine = shallowRef<Uint8Array | null>(null);
+const editHistory = shallowRef<EditHistorySnapshot | null>(null);
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
@@ -216,28 +223,34 @@ onMounted(() => {
 });
 
 function openEditor(): void {
-    const snap = getEditSnapshot();
-    if (!snap) return;
-    editSource.value = snap;
+    const session = getEditSession();
+    if (!session) return;
+    editSource.value = session.source;
+    editPristine.value = session.pristine;
+    editHistory.value = session.history;
     editing.value = true;
     sheetUi.error = '';
     sheetUi.status = '';
 }
 
-function onEditApply(canvas: HTMLCanvasElement): void {
+function onEditApply(canvas: HTMLCanvasElement, history: EditHistorySnapshot): void {
     try {
-        applyEditedCanvas(canvas);
+        applyEditedCanvas(canvas, history);
         sheetUi.status = 'Image edits applied';
     } catch (err) {
         sheetUi.error = err instanceof Error ? err.message : String(err);
     }
     editing.value = false;
     editSource.value = null;
+    editPristine.value = null;
+    editHistory.value = null;
 }
 
 function onEditCancel(): void {
     editing.value = false;
     editSource.value = null;
+    editPristine.value = null;
+    editHistory.value = null;
 }
 
 function onAddOverlay(): void {

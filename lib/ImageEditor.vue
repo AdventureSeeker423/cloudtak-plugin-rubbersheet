@@ -92,6 +92,24 @@
                     <button
                         type='button'
                         class='ie-tool'
+                        :class='{ active: tool === "rect" }'
+                        title='Rectangle Marquee — drag to select'
+                        @click='setTool("rect")'
+                    >
+                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                            <path
+                                fill='none'
+                                stroke='currentColor'
+                                stroke-width='2'
+                                stroke-dasharray='3 2'
+                                d='M4 4h16v16H4z'
+                            />
+                        </svg>
+                        <span>Rect</span>
+                    </button>
+                    <button
+                        type='button'
+                        class='ie-tool'
                         :class='{ active: tool === "eraser" }'
                         title='Eraser — paint transparency'
                         @click='setTool("eraser")'
@@ -108,7 +126,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "color" }'
-                        title='Selective color — select every matching color in the image'
+                        title='Selective Color — select every matching color in the image'
                         @click='setTool("color")'
                     >
                         <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
@@ -117,7 +135,7 @@
                                 d='M3 17.2 12.8 7.4l3.8 3.8L6.8 21H3v-3.8zm14.6-9.2 2.1-2.1a1.5 1.5 0 0 0 0-2.1l-1.5-1.5a1.5 1.5 0 0 0-2.1 0l-2.1 2.1 3.6 3.6zM14 19h7v2h-7v-2z'
                             />
                         </svg>
-                        <span class='ie-tool-multiline'>Selective<br>color</span>
+                        <span class='ie-tool-multiline'>Selective<br>Color</span>
                     </button>
                 </aside>
 
@@ -187,6 +205,12 @@
                         >
                         <p class='ie-hint'>
                             Click to select. Shift add · Ctrl subtract. Then Delete.
+                        </p>
+                    </template>
+                    <template v-else-if='tool === "rect"'>
+                        <div class='ie-opt-label'>Rectangle</div>
+                        <p class='ie-hint'>
+                            Drag to select. Shift add · Ctrl subtract. Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "color"'>
@@ -288,27 +312,32 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { EditHistory } from './edit-history.ts';
+import { EditHistory, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
     eraseBrush,
     eraseMask,
     floodSelect,
     type FloodSelectMode,
+    rectSelect,
     sampleColor,
     selectionOutlinePath,
 } from './image-edit.ts';
 
 const props = defineProps<{
     source: HTMLCanvasElement;
+    /** True original pixels for Revert (from first load). Defaults to source. */
+    pristine?: Uint8Array;
+    /** Undo/redo stacks from a previous edit session. */
+    history?: EditHistorySnapshot | null;
 }>();
 
 const emit = defineEmits<{
-    apply: [canvas: HTMLCanvasElement];
+    apply: [canvas: HTMLCanvasElement, history: EditHistorySnapshot];
     cancel: [];
 }>();
 
-type Tool = 'wand' | 'color' | 'eraser';
+type Tool = 'wand' | 'rect' | 'color' | 'eraser';
 
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
@@ -352,9 +381,13 @@ if (!tintCtx) throw new Error('Could not create selection overlay');
 const sourceCtx = props.source.getContext('2d', { willReadFrequently: true });
 if (!sourceCtx) throw new Error('Could not read the sheet image');
 const initial = sourceCtx.getImageData(0, 0, width, height);
-const original = new Uint8Array(initial.data);
-rgba.set(original);
+rgba.set(initial.data);
 workingCtx.putImageData(initial, 0, 0);
+
+const original = props.pristine && props.pristine.length === rgba.length
+    ? new Uint8Array(props.pristine)
+    : new Uint8Array(initial.data);
+if (props.history) history.importSnapshot(props.history);
 
 let dragging = false;
 let panning = false;
@@ -373,6 +406,13 @@ let selectionPath: Path2D | null = null;
 let antsPhase = 0;
 let antsRaf = 0;
 let lastAntPaint = 0;
+let rectDrag: {
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    mode: FloodSelectMode;
+} | null = null;
 
 const brushPreviewStyle = computed(() => {
     const d = Math.max(8, Math.min(48, brushSize.value));
@@ -390,6 +430,7 @@ const cursorClass = computed(() => {
     if (panning || spaceDown) return 'cursor-pan';
     if (tool.value === 'eraser') return 'cursor-none';
     if (tool.value === 'color') return 'cursor-eyedrop';
+    if (tool.value === 'rect') return 'cursor-cross';
     return 'cursor-wand';
 });
 
@@ -457,12 +498,15 @@ function applyColorSelection(): void {
 
 function setTool(next: Tool): void {
     tool.value = next;
+    rectDrag = null;
     if (next === 'color') {
         if (hasColorTarget.value) applyColorSelection();
         else clearSelection();
-    } else if (next !== 'wand') {
+    } else if (next === 'eraser') {
         clearSelection();
     }
+    // Wand / Rect keep the current selection.
+    paint();
 }
 
 function deleteSelection(): void {
@@ -522,6 +566,25 @@ function paint(): void {
             ctx.stroke(selectionPath);
             ctx.setLineDash([]);
         }
+    }
+
+    if (rectDrag) {
+        const left = Math.min(rectDrag.x0, rectDrag.x1);
+        const top = Math.min(rectDrag.y0, rectDrag.y1);
+        const rw = Math.abs(rectDrag.x1 - rectDrag.x0);
+        const rh = Math.abs(rectDrag.y1 - rectDrag.y0);
+        const dash = Math.max(3, 6 / scale.value);
+        ctx.lineWidth = Math.max(1 / scale.value, 1.25 / scale.value);
+        ctx.setLineDash([dash, dash]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.strokeRect(left, top, rw, rh);
+        ctx.lineDashOffset = dash;
+        ctx.strokeStyle = 'rgba(20,24,32,0.8)';
+        ctx.strokeRect(left, top, rw, rh);
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
+        ctx.fillStyle = 'rgba(90,160,255,0.12)';
+        ctx.fillRect(left, top, rw, rh);
     }
     ctx.restore();
 
@@ -586,6 +649,32 @@ function onWheel(event: WheelEvent): void {
     paint();
 }
 
+function selectModeFromEvent(event: PointerEvent): FloodSelectMode {
+    if (event.ctrlKey || event.metaKey) return 'subtract';
+    if (event.shiftKey) return 'add';
+    return 'replace';
+}
+
+function clampImagePoint(point: { x: number; y: number }): { x: number; y: number } {
+    return {
+        x: Math.min(width, Math.max(0, point.x)),
+        y: Math.min(height, Math.max(0, point.y)),
+    };
+}
+
+function finishRectDrag(): void {
+    if (!rectDrag) return;
+    const drag = rectDrag;
+    rectDrag = null;
+    if (Math.abs(drag.x1 - drag.x0) < 1 && Math.abs(drag.y1 - drag.y0) < 1) {
+        paint();
+        return;
+    }
+    rectSelect(width, height, drag.x0, drag.y0, drag.x1, drag.y1, selectionMask, drag.mode);
+    rebuildSelectionVisuals();
+    paint();
+}
+
 function onPointerDown(event: PointerEvent): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
@@ -605,6 +694,23 @@ function onPointerDown(event: PointerEvent): void {
 
     const point = viewToImage(event.clientX, event.clientY);
     if (!point) return;
+
+    if (tool.value === 'rect') {
+        const clamped = clampImagePoint(point);
+        dragging = true;
+        target.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        rectDrag = {
+            x0: clamped.x,
+            y0: clamped.y,
+            x1: clamped.x,
+            y1: clamped.y,
+            mode: selectModeFromEvent(event),
+        };
+        paint();
+        return;
+    }
+
     if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return;
 
     dragging = true;
@@ -612,9 +718,6 @@ function onPointerDown(event: PointerEvent): void {
     event.preventDefault();
 
     if (tool.value === 'wand') {
-        let mode: FloodSelectMode = 'replace';
-        if (event.ctrlKey || event.metaKey) mode = 'subtract';
-        else if (event.shiftKey) mode = 'add';
         floodSelect(
             rgba,
             width,
@@ -623,7 +726,7 @@ function onPointerDown(event: PointerEvent): void {
             point.y,
             fuzziness.value,
             selectionMask,
-            mode,
+            selectModeFromEvent(event),
             selectionScratch,
         );
         rebuildSelectionVisuals();
@@ -667,6 +770,16 @@ function onPointerMove(event: PointerEvent): void {
         return;
     }
 
+    if (tool.value === 'rect' && dragging && rectDrag) {
+        const point = viewToImage(event.clientX, event.clientY);
+        if (!point) return;
+        const clamped = clampImagePoint(point);
+        rectDrag.x1 = clamped.x;
+        rectDrag.y1 = clamped.y;
+        paint();
+        return;
+    }
+
     if (tool.value === 'eraser' && (!dragging || !strokeActive)) {
         paint();
         return;
@@ -699,6 +812,7 @@ function onPointerMove(event: PointerEvent): void {
 }
 
 function onPointerUp(): void {
+    if (tool.value === 'rect' && rectDrag) finishRectDrag();
     dragging = false;
     panning = false;
     strokeActive = false;
@@ -729,13 +843,12 @@ function doRedo(): void {
 function revertToOriginal(): void {
     confirmRevert.value = false;
     if (buffersMatch(rgba, original)) {
-        history.clear();
         syncHistoryFlags();
         return;
     }
+    history.push(rgba);
     rgba.set(original);
     writeWorking();
-    history.clear();
     clearSelection();
     syncHistoryFlags();
     if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
@@ -812,7 +925,7 @@ function emitApply(): void {
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(working, 0, 0);
-    emit('apply', out);
+    emit('apply', out, history.exportSnapshot());
 }
 
 function antsLoop(now: number): void {
@@ -839,6 +952,7 @@ onMounted(() => {
     document.body.classList.add('rubber-ie-open');
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    syncHistoryFlags();
     fitView();
     if (viewport.value) {
         resizeObserver = new ResizeObserver(() => paint());
@@ -1115,6 +1229,10 @@ onUnmounted(() => {
 }
 
 .cursor-wand {
+    cursor: crosshair;
+}
+
+.cursor-cross {
     cursor: crosshair;
 }
 

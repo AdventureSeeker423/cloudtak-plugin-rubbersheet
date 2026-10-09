@@ -60,3 +60,25 @@ test('eraser stroke contract: one push before stroke undoes the whole stroke', (
     assert.equal(history.undo(pixels), true);
     assert.deepEqual(pixels, buf(255));
 });
+
+test('export/import restores undo and redo across sessions', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.push(pixels);
+    pixels.fill(3);
+    history.undo(pixels);
+    const snap = history.exportSnapshot();
+
+    const restored = new EditHistory();
+    restored.importSnapshot(snap);
+    assert.equal(restored.canUndo, true);
+    assert.equal(restored.canRedo, true);
+    assert.equal(restored.undo(pixels), true);
+    assert.deepEqual(pixels, buf(1));
+    assert.equal(restored.redo(pixels), true);
+    assert.deepEqual(pixels, buf(2));
+    assert.equal(restored.redo(pixels), true);
+    assert.deepEqual(pixels, buf(3));
+});
