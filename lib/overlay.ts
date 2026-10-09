@@ -16,7 +16,93 @@ function sleep(ms: number): Promise<void> {
 
 async function readError(response: Response): Promise<string> {
     const text = (await response.text()).trim();
-    return text || `Request failed (${response.status})`;
+    if (!text) return `Request failed (${response.status})`;
+    try {
+        const json = JSON.parse(text) as { message?: string };
+        if (json.message) return json.message;
+    } catch {
+        // not JSON
+    }
+    return text;
+}
+
+/**
+ * CloudTAK auth is a Bearer token from Capacitor Preferences.
+ * On web that is stored as localStorage `CapacitorStorage.token` (not a cookie).
+ */
+async function getAuthToken(): Promise<string | undefined> {
+    try {
+        const caps = localStorage.getItem('CapacitorStorage.token');
+        if (caps) return caps;
+        const plain = localStorage.getItem('token');
+        if (plain) return plain;
+    } catch {
+        // Private browsing can reject storage.
+    }
+
+    return readTokenFromCloudTakDb();
+}
+
+function readTokenFromCloudTakDb(): Promise<string | undefined> {
+    return new Promise((resolve) => {
+        const factory = indexedDB as IDBFactory & {
+            databases?: () => Promise<Array<{ name?: string }>>;
+        };
+        const open = () => {
+            const request = indexedDB.open('CloudTAK');
+            request.onupgradeneeded = () => {
+                request.transaction?.abort();
+            };
+            request.onerror = () => resolve(undefined);
+            request.onsuccess = () => {
+                const db = request.result;
+                if (!db.objectStoreNames.contains('config')) {
+                    db.close();
+                    resolve(undefined);
+                    return;
+                }
+                const tx = db.transaction('config', 'readonly');
+                const get = tx.objectStore('config').get('token');
+                get.onerror = () => {
+                    db.close();
+                    resolve(undefined);
+                };
+                get.onsuccess = () => {
+                    db.close();
+                    const row = get.result as { value?: unknown } | undefined;
+                    resolve(typeof row?.value === 'string' && row.value ? row.value : undefined);
+                };
+            };
+        };
+
+        if (typeof factory.databases !== 'function') {
+            open();
+            return;
+        }
+        void factory.databases().then((existing) => {
+            if (!existing.some((db) => db.name === 'CloudTAK')) {
+                resolve(undefined);
+                return;
+            }
+            open();
+        }).catch(() => resolve(undefined));
+    });
+}
+
+async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const token = await getAuthToken();
+    if (!token) throw new Error('Not signed in — CloudTAK auth token is missing');
+
+    const headers = new Headers(init.headers);
+    if (!headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    return fetch(url, {
+        ...init,
+        credentials: 'same-origin',
+        headers,
+    });
 }
 
 async function putImport(file: {
@@ -28,9 +114,8 @@ async function putImport(file: {
     const blob = new Blob([file.bytes.slice()], { type: file.mime });
     form.append('file', blob, file.filename);
 
-    const response = await fetch('/api/import', {
+    const response = await apiFetch('/api/import', {
         method: 'PUT',
-        credentials: 'same-origin',
         body: form,
     });
     if (!response.ok) throw new Error(await readError(response));
@@ -46,9 +131,7 @@ async function putImport(file: {
 async function waitForImport(uid: string): Promise<string> {
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
-        const response = await fetch(`/api/import/${encodeURIComponent(uid)}`, {
-            credentials: 'same-origin',
-        });
+        const response = await apiFetch(`/api/import/${encodeURIComponent(uid)}`);
         if (!response.ok) throw new Error(await readError(response));
 
         const body = await response.json() as {
@@ -74,9 +157,7 @@ async function waitForImport(uid: string): Promise<string> {
 async function waitForPmtiles(assetId: string): Promise<void> {
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
-        const response = await fetch(`/api/profile/asset/${encodeURIComponent(assetId)}`, {
-            credentials: 'same-origin',
-        });
+        const response = await apiFetch(`/api/profile/asset/${encodeURIComponent(assetId)}`);
         if (!response.ok) throw new Error(await readError(response));
 
         const body = await response.json() as {
@@ -89,9 +170,7 @@ async function waitForPmtiles(assetId: string): Promise<void> {
 }
 
 async function overlayType(assetId: string): Promise<'raster' | 'vector'> {
-    const response = await fetch(`/api/profile/asset/${encodeURIComponent(assetId)}.pmtiles/tile`, {
-        credentials: 'same-origin',
-    });
+    const response = await apiFetch(`/api/profile/asset/${encodeURIComponent(assetId)}.pmtiles/tile`);
     if (!response.ok) throw new Error(await readError(response));
     const body = await response.json() as { tiles?: string[] };
     const tile = body.tiles?.[0];
@@ -109,9 +188,8 @@ async function createProfileOverlay(opts: {
     type: 'raster' | 'vector';
 }): Promise<void> {
     const url = `/api/profile/asset/${encodeURIComponent(opts.assetId)}.pmtiles/tile`;
-    const response = await fetch('/api/profile/overlay', {
+    const response = await apiFetch('/api/profile/overlay', {
         method: 'POST',
-        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             url,
