@@ -44,6 +44,17 @@ let barOn = false;
 let dragging = false;
 let restorePan = false;
 let listening = false;
+let modListening = false;
+let shiftHeld = false;
+let altHeld = false;
+
+/** Diagonal resize cursors read as scale handles for each corner. */
+const SCALE_CURSOR: Record<CornerIndex, string> = {
+    0: 'nwse-resize',
+    1: 'nesw-resize',
+    2: 'nwse-resize',
+    3: 'nesw-resize',
+};
 
 function mapOrThrow(): MapLibreMap {
     if (!host) throw new Error('The map is not ready yet');
@@ -182,12 +193,61 @@ function trackPointer(event: PointerEvent, onMove: (ev: PointerEvent) => void): 
     target.addEventListener('pointercancel', end);
 }
 
+function scaleModeActive(ev?: { shiftKey?: boolean; altKey?: boolean }): boolean {
+    return !!(ev?.altKey || ev?.shiftKey || altHeld || shiftHeld);
+}
+
+function cornerCursor(index: CornerIndex, scale: boolean): string {
+    return scale ? SCALE_CURSOR[index] : 'grab';
+}
+
+function refreshCornerCursors(ev?: { shiftKey?: boolean; altKey?: boolean }): void {
+    const scale = scaleModeActive(ev);
+    markers.forEach((marker, index) => {
+        marker.getElement().style.cursor = cornerCursor(index as CornerIndex, scale);
+    });
+}
+
+function onModifierKey(event: KeyboardEvent): void {
+    shiftHeld = event.shiftKey;
+    altHeld = event.altKey;
+    refreshCornerCursors(event);
+}
+
+function onWindowBlur(): void {
+    shiftHeld = false;
+    altHeld = false;
+    refreshCornerCursors();
+}
+
+function listenModifiers(): void {
+    if (modListening) return;
+    window.addEventListener('keydown', onModifierKey);
+    window.addEventListener('keyup', onModifierKey);
+    window.addEventListener('blur', onWindowBlur);
+    modListening = true;
+}
+
+function unlistenModifiers(): void {
+    if (!modListening) return;
+    window.removeEventListener('keydown', onModifierKey);
+    window.removeEventListener('keyup', onModifierKey);
+    window.removeEventListener('blur', onWindowBlur);
+    modListening = false;
+    shiftHeld = false;
+    altHeld = false;
+}
+
 function startCorner(event: PointerEvent, index: CornerIndex): void {
     if (!quad) return;
     const origin = cloneQuad(quad);
     // Lock the mode at pointer-down so a mid-drag Shift/Alt press cannot switch
     // a plain warp into a scale.
     const mode = event.altKey ? 'center' : event.shiftKey ? 'opposite' : 'corner';
+    const target = event.currentTarget;
+    if (target instanceof HTMLElement) {
+        target.style.cursor = mode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
+    }
     trackPointer(event, (ev) => {
         const cursor = pointerToLngLat(ev);
         if (mode === 'center') {
@@ -257,13 +317,25 @@ function ensureMarkers(): void {
             'Drag to move this corner. Shift-drag to scale about the opposite corner. Alt-drag to scale from the center.',
             '#ffffff',
         );
+        element.style.cursor = cornerCursor(index, scaleModeActive());
+        element.addEventListener('pointerenter', (event) => {
+            element.style.cursor = cornerCursor(index, scaleModeActive(event));
+        });
+        element.addEventListener('pointermove', (event) => {
+            if (dragging) return;
+            element.style.cursor = cornerCursor(index, scaleModeActive(event));
+        });
         element.addEventListener('pointerdown', (event) => startCorner(event, index));
+        element.addEventListener('pointerup', (event) => {
+            element.style.cursor = cornerCursor(index, scaleModeActive(event));
+        });
         return new Marker({ element, anchor: 'center' }).setLngLat(current[index]).addTo(mapHost.map);
     });
     const knobElement = rotateHandleElement();
     knobElement.addEventListener('pointerdown', startRotate);
     const knobAt = knobLngLat() ?? current[0];
     knob = new Marker({ element: knobElement, anchor: 'center' }).setLngLat(knobAt).addTo(mapHost.map);
+    listenModifiers();
 }
 
 function removeMarkers(): void {
@@ -271,6 +343,7 @@ function removeMarkers(): void {
     markers = [];
     knob?.remove();
     knob = null;
+    unlistenModifiers();
 }
 
 function ensureBar(): void {
