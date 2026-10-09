@@ -321,7 +321,7 @@
                             class='ie-range'
                             type='range'
                             min='2'
-                            max='80'
+                            max='300'
                             v-model.number='brushSize'
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
@@ -382,6 +382,7 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { MAX_IMAGE_SIDE } from './constants.ts';
 import { EditHistory, EDIT_HISTORY_CAP, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
@@ -444,23 +445,23 @@ const rootEl = ref<HTMLElement | null>(null);
 const viewport = ref<HTMLElement | null>(null);
 const canvasEl = ref<HTMLCanvasElement | null>(null);
 
-const width = props.source.width;
-const height = props.source.height;
-const rgba = new Uint8Array(width * height * 4);
-const selectionMask = new Uint8Array(width * height);
-const selectionScratch = new Uint8Array(width * height);
+let width = props.source.width;
+let height = props.source.height;
+let rgba = new Uint8Array(width * height * 4);
+let selectionMask = new Uint8Array(width * height);
+let selectionScratch = new Uint8Array(width * height);
 const history = new EditHistory();
 
 const working = document.createElement('canvas');
 working.width = width;
 working.height = height;
-const workingCtx = working.getContext('2d', { willReadFrequently: true });
+let workingCtx = working.getContext('2d', { willReadFrequently: true });
 if (!workingCtx) throw new Error('Could not create edit canvas');
 
 const tintCanvas = document.createElement('canvas');
 tintCanvas.width = width;
 tintCanvas.height = height;
-const tintCtx = tintCanvas.getContext('2d');
+let tintCtx = tintCanvas.getContext('2d');
 if (!tintCtx) throw new Error('Could not create selection overlay');
 
 const sourceCtx = props.source.getContext('2d', { willReadFrequently: true });
@@ -469,7 +470,7 @@ const initial = sourceCtx.getImageData(0, 0, width, height);
 rgba.set(initial.data);
 workingCtx.putImageData(initial, 0, 0);
 
-const original = props.pristine && props.pristine.length === rgba.length
+let original = props.pristine && props.pristine.length === rgba.length
     ? new Uint8Array(props.pristine)
     : new Uint8Array(initial.data);
 if (props.history) history.importSnapshot(props.history);
@@ -629,17 +630,149 @@ function deleteSelection(): void {
     syncHistoryFlags();
 }
 
+function padRgbaBuffer(
+    src: Uint8Array,
+    srcW: number,
+    srcH: number,
+    padLeft: number,
+    padTop: number,
+    newW: number,
+    newH: number,
+): Uint8Array {
+    const out = new Uint8Array(newW * newH * 4);
+    for (let y = 0; y < srcH; y++) {
+        const dy = y + padTop;
+        const srcRow = y * srcW * 4;
+        const dstRow = dy * newW * 4;
+        for (let x = 0; x < srcW; x++) {
+            const si = srcRow + x * 4;
+            const di = dstRow + (x + padLeft) * 4;
+            out[di] = src[si];
+            out[di + 1] = src[si + 1];
+            out[di + 2] = src[si + 2];
+            out[di + 3] = src[si + 3];
+        }
+    }
+    return out;
+}
+
+function padMask(
+    src: Uint8Array,
+    srcW: number,
+    srcH: number,
+    padLeft: number,
+    padTop: number,
+    newW: number,
+    newH: number,
+): Uint8Array {
+    const out = new Uint8Array(newW * newH);
+    for (let y = 0; y < srcH; y++) {
+        const dy = y + padTop;
+        const srcRow = y * srcW;
+        const dstRow = dy * newW;
+        for (let x = 0; x < srcW; x++) {
+            out[dstRow + x + padLeft] = src[srcRow + x];
+        }
+    }
+    return out;
+}
+
+/**
+ * Grow the edit canvas with transparent padding so a stamp at (cx, cy) fits fully.
+ * Returns the stamp center in the (possibly expanded) image space.
+ */
+function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: number } {
+    const half = Math.max(8, size) / 2;
+    let padLeft = Math.max(0, Math.ceil(half - cx));
+    let padTop = Math.max(0, Math.ceil(half - cy));
+    let padRight = Math.max(0, Math.ceil(cx + half - width));
+    let padBottom = Math.max(0, Math.ceil(cy + half - height));
+    if (padLeft === 0 && padTop === 0 && padRight === 0 && padBottom === 0) {
+        return { x: cx, y: cy };
+    }
+
+    let newW = width + padLeft + padRight;
+    let newH = height + padTop + padBottom;
+    // Keep within export/import limits; shrink padding symmetrically if needed.
+    if (newW > MAX_IMAGE_SIDE) {
+        const over = newW - MAX_IMAGE_SIDE;
+        const cutL = Math.min(padLeft, Math.floor(over / 2));
+        const cutR = Math.min(padRight, over - cutL);
+        padLeft -= cutL;
+        padRight -= cutR;
+        newW = width + padLeft + padRight;
+    }
+    if (newH > MAX_IMAGE_SIDE) {
+        const over = newH - MAX_IMAGE_SIDE;
+        const cutT = Math.min(padTop, Math.floor(over / 2));
+        const cutB = Math.min(padBottom, over - cutT);
+        padTop -= cutT;
+        padBottom -= cutB;
+        newH = height + padTop + padBottom;
+    }
+    if (padLeft === 0 && padTop === 0 && padRight === 0 && padBottom === 0) {
+        return {
+            x: Math.min(width - half, Math.max(half, cx)),
+            y: Math.min(height - half, Math.max(half, cy)),
+        };
+    }
+
+    const oldW = width;
+    const oldH = height;
+    rgba = padRgbaBuffer(rgba, oldW, oldH, padLeft, padTop, newW, newH);
+    original = padRgbaBuffer(original, oldW, oldH, padLeft, padTop, newW, newH);
+    selectionMask = padMask(selectionMask, oldW, oldH, padLeft, padTop, newW, newH);
+    selectionScratch = new Uint8Array(newW * newH);
+    history.mapFrames((frame) => {
+        if (frame.length !== oldW * oldH * 4) return frame;
+        return padRgbaBuffer(frame, oldW, oldH, padLeft, padTop, newW, newH);
+    });
+    for (const stamp of stamps) {
+        stamp.x += padLeft;
+        stamp.y += padTop;
+    }
+    for (const stack of stampPast) {
+        for (const stamp of stack) {
+            stamp.x += padLeft;
+            stamp.y += padTop;
+        }
+    }
+    for (const stack of stampFuture) {
+        for (const stamp of stack) {
+            stamp.x += padLeft;
+            stamp.y += padTop;
+        }
+    }
+
+    width = newW;
+    height = newH;
+    working.width = width;
+    working.height = height;
+    const nextWorking = working.getContext('2d', { willReadFrequently: true });
+    if (!nextWorking) throw new Error('Could not resize edit canvas');
+    workingCtx = nextWorking;
+    tintCanvas.width = width;
+    tintCanvas.height = height;
+    const nextTint = tintCanvas.getContext('2d');
+    if (!nextTint) throw new Error('Could not resize selection overlay');
+    tintCtx = nextTint;
+
+    return { x: cx + padLeft, y: cy + padTop };
+}
+
 function placeOrRemoveStamp(x: number, y: number): void {
     const hit = hitTestStamp(stamps, x, y);
-    pushEdit();
     if (hit) {
+        pushEdit();
         stamps = stamps.filter((stamp) => stamp.id !== hit.id);
     } else {
+        const at = ensureStampFits(x, y, stampSize.value);
+        pushEdit();
         stamps.push({
             id: nextStampId++,
             kind: stampKind.value,
-            x,
-            y,
+            x: at.x,
+            y: at.y,
             size: stampSize.value,
         });
     }
@@ -728,7 +861,7 @@ function paint(): void {
 
     if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown) {
         const hover = viewToImage(hoverClientX, hoverClientY);
-        if (hover && hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
+        if (hover) {
             const hit = hitTestStamp(stamps, hover.x, hover.y);
             if (hit) {
                 ctx.beginPath();
@@ -868,6 +1001,15 @@ function onPointerDown(event: PointerEvent): void {
         return;
     }
 
+    if (tool.value === 'stamp') {
+        dragging = true;
+        target.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        placeOrRemoveStamp(point.x, point.y);
+        dragging = false;
+        return;
+    }
+
     if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return;
 
     dragging = true;
@@ -901,12 +1043,6 @@ function onPointerDown(event: PointerEvent): void {
             hasColorTarget.value = true;
             applyColorSelection();
         }
-        dragging = false;
-        return;
-    }
-
-    if (tool.value === 'stamp') {
-        placeOrRemoveStamp(point.x, point.y);
         dragging = false;
         return;
     }
@@ -1084,7 +1220,7 @@ function onKeyDown(event: KeyboardEvent): void {
         const next = event.key === ']'
             ? brushSize.value + step
             : brushSize.value - step;
-        brushSize.value = Math.min(80, Math.max(2, next));
+        brushSize.value = Math.min(300, Math.max(2, next));
         if (tool.value !== 'eraser') tool.value = 'eraser';
         return;
     }

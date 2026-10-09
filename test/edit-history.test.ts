@@ -82,3 +82,19 @@ test('export/import restores undo and redo across sessions', () => {
     assert.equal(restored.redo(pixels), true);
     assert.deepEqual(pixels, buf(3));
 });
+
+test('mapFrames rewrites past and future snapshots', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.undo(pixels);
+    history.mapFrames((frame) => {
+        const next = frame.slice();
+        next[0] = 9;
+        return next;
+    });
+    assert.equal(history.undo(pixels), false);
+    assert.equal(history.redo(pixels), true);
+    assert.equal(pixels[0], 9);
+});

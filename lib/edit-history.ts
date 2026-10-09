@@ -89,4 +89,10 @@ export class EditHistory {
         target.set(next);
         return true;
     }
+
+    /** Rewrite every stored frame (e.g. after the canvas grows). */
+    mapFrames(map: (frame: Uint8Array) => Uint8Array): void {
+        this.past = this.past.map(map);
+        this.future = this.future.map(map);
+    }
 }
