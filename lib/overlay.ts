@@ -1,8 +1,10 @@
 /**
- * Upload a GeoTIFF through CloudTAK Imports and register it as a profile overlay,
+ * Upload a file through CloudTAK Imports and register it as a profile overlay,
  * matching the Files menu "Add to Map as Overlay" flow:
- * PUT /api/import → wait for Success → POST /api/profile/overlay
- * @see https://docs.cloudtak.io/user/ (Uploaded Files)
+ * PUT /api/import → wait for Success → wait for .pmtiles TileJSON → POST /api/profile/overlay
+ *
+ * Note: there is no GET /api/profile/asset/:id metadata route — poll
+ * GET /api/profile/asset/:id.pmtiles/tile until Cloud Optimized tiles exist.
  */
 
 const POLL_MS = 2000;
@@ -122,8 +124,9 @@ async function putImport(file: {
 
     const body = await response.json() as {
         imports?: Array<{ uid?: string }>;
+        id?: string;
     };
-    const uid = body.imports?.[0]?.uid;
+    const uid = body.imports?.[0]?.uid ?? body.id;
     if (!uid) throw new Error('Import did not return an id');
     return uid;
 }
@@ -154,45 +157,48 @@ async function waitForImport(uid: string): Promise<string> {
     throw new Error('Timed out waiting for the import to finish');
 }
 
-async function waitForPmtiles(assetId: string): Promise<void> {
+/**
+ * Poll TileJSON until Cloud Optimized PMTiles exist (same readiness signal as Files UI).
+ */
+async function waitForTileJson(assetId: string): Promise<{ type: 'raster' | 'vector'; url: string }> {
+    const tileUrl = `/api/profile/asset/${encodeURIComponent(assetId)}.pmtiles/tile`;
     const deadline = Date.now() + MAX_WAIT_MS;
-    while (Date.now() < deadline) {
-        const response = await apiFetch(`/api/profile/asset/${encodeURIComponent(assetId)}`);
-        if (!response.ok) throw new Error(await readError(response));
 
-        const body = await response.json() as {
-            artifacts?: Array<{ ext?: string }>;
-        };
-        if ((body.artifacts ?? []).some((row) => row.ext === '.pmtiles')) return;
+    while (Date.now() < deadline) {
+        const response = await apiFetch(tileUrl);
+        if (response.ok) {
+            const body = await response.json() as { tiles?: string[] };
+            const tile = body.tiles?.[0];
+            if (!tile) throw new Error('Malformed PMTiles metadata response');
+            let type: 'raster' | 'vector' = 'raster';
+            try {
+                type = new URL(tile, window.location.origin).pathname.endsWith('.mvt') ? 'vector' : 'raster';
+            } catch {
+                type = tile.includes('.mvt') ? 'vector' : 'raster';
+            }
+            return { type, url: tileUrl };
+        }
+
+        // 404 while tiling is still running is expected; other errors are real failures.
+        if (response.status !== 404) {
+            throw new Error(await readError(response));
+        }
+
         await sleep(POLL_MS);
     }
     throw new Error('Timed out waiting for Cloud Optimized tiles');
 }
 
-async function overlayType(assetId: string): Promise<'raster' | 'vector'> {
-    const response = await apiFetch(`/api/profile/asset/${encodeURIComponent(assetId)}.pmtiles/tile`);
-    if (!response.ok) throw new Error(await readError(response));
-    const body = await response.json() as { tiles?: string[] };
-    const tile = body.tiles?.[0];
-    if (!tile) throw new Error('Malformed PMTiles metadata response');
-    try {
-        return new URL(tile, window.location.origin).pathname.endsWith('.mvt') ? 'vector' : 'raster';
-    } catch {
-        return tile.includes('.mvt') ? 'vector' : 'raster';
-    }
-}
-
 async function createProfileOverlay(opts: {
-    assetId: string;
+    url: string;
     name: string;
     type: 'raster' | 'vector';
 }): Promise<void> {
-    const url = `/api/profile/asset/${encodeURIComponent(opts.assetId)}.pmtiles/tile`;
     const response = await apiFetch('/api/profile/overlay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            url,
+            url: opts.url,
             name: opts.name,
             mode: 'profile',
             mode_id: opts.name,
@@ -205,7 +211,7 @@ async function createProfileOverlay(opts: {
 }
 
 /**
- * Import a GeoTIFF into CloudTAK and add it as a map overlay (Files menu flow).
+ * Import a file (KMZ preferred) into CloudTAK and add it as a map overlay.
  */
 export async function importAsOverlay(
     file: { filename: string; bytes: Uint8Array; mime: string },
@@ -219,13 +225,12 @@ export async function importAsOverlay(
     const assetId = await waitForImport(uid);
 
     onStatus?.('Waiting for Cloud Optimized tiles…');
-    await waitForPmtiles(assetId);
+    const tiles = await waitForTileJson(assetId);
 
     onStatus?.('Adding overlay…');
-    const type = await overlayType(assetId);
     await createProfileOverlay({
-        assetId,
+        url: tiles.url,
         name: name.trim() || file.filename.replace(/\.[^.]+$/, '') || 'rubber-sheet',
-        type,
+        type: tiles.type,
     });
 }

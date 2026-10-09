@@ -16,10 +16,22 @@ function colorDistance(
     return Math.sqrt(dr * dr + dg * dg + db * db);
 }
 
+export type FloodSelectMode = 'replace' | 'add' | 'subtract';
+
+function countMask(mask: Uint8Array): number {
+    let count = 0;
+    for (let i = 0; i < mask.length; i++) {
+        if (mask[i]) count += 1;
+    }
+    return count;
+}
+
 /**
  * Contiguous flood fill from (x, y) into a mask (1 = selected).
  * Fuzziness is max Euclidean RGB distance from the seed color.
- * Returns number of selected pixels.
+ * `replace` clears the mask first; `add` unions; `subtract` removes the region.
+ * Pass `scratch` for add/subtract to avoid allocating each click.
+ * Returns number of selected pixels after the operation.
  */
 export function floodSelect(
     rgba: Uint8Array,
@@ -29,15 +41,20 @@ export function floodSelect(
     y: number,
     fuzziness: number,
     mask: Uint8Array,
+    mode: FloodSelectMode = 'replace',
+    scratch?: Uint8Array,
 ): number {
-    mask.fill(0);
     const px = Math.floor(x);
     const py = Math.floor(y);
-    if (px < 0 || py < 0 || px >= width || py >= height) return 0;
+    if (px < 0 || py < 0 || px >= width || py >= height || rgba[(py * width + px) * 4 + 3] === 0) {
+        if (mode === 'replace') mask.fill(0);
+        return countMask(mask);
+    }
+
+    const region = mode === 'replace' ? mask : (scratch ?? new Uint8Array(width * height));
+    region.fill(0);
 
     const seed = (py * width + px) * 4;
-    if (rgba[seed + 3] === 0) return 0;
-
     const sr = rgba[seed];
     const sg = rgba[seed + 1];
     const sb = rgba[seed + 2];
@@ -46,7 +63,6 @@ export function floodSelect(
     const seen = new Uint8Array(width * height);
     const stack: number[] = [px, py];
     seen[py * width + px] = 1;
-    let count = 0;
 
     while (stack.length) {
         const cy = stack.pop()!;
@@ -55,8 +71,7 @@ export function floodSelect(
         if (rgba[offset + 3] === 0) continue;
         if (colorDistance(rgba, offset, sr, sg, sb) > tol) continue;
 
-        mask[cy * width + cx] = 1;
-        count += 1;
+        region[cy * width + cx] = 1;
 
         const neighbors = [
             cx - 1, cy,
@@ -75,7 +90,20 @@ export function floodSelect(
         }
     }
 
-    return count;
+    if (mode !== 'replace') {
+        const n = width * height;
+        if (mode === 'add') {
+            for (let i = 0; i < n; i++) {
+                if (region[i]) mask[i] = 1;
+            }
+        } else {
+            for (let i = 0; i < n; i++) {
+                if (region[i]) mask[i] = 0;
+            }
+        }
+    }
+
+    return countMask(mask);
 }
 
 /**
@@ -161,7 +189,7 @@ export function floodErase(
 }
 
 /**
- * Soft circular brush: set alpha to 0 (and RGB to 0) inside radius.
+ * Hard circular brush (100% hardness): fully clear every pixel inside radius.
  */
 export function eraseBrush(
     rgba: Uint8Array,
@@ -172,7 +200,6 @@ export function eraseBrush(
     radius: number,
 ): number {
     const r = Math.max(0.5, radius);
-    const hard = r * 0.65;
     const minX = Math.max(0, Math.floor(x - r));
     const maxX = Math.min(width - 1, Math.ceil(x + r));
     const minY = Math.max(0, Math.floor(y - r));
@@ -183,25 +210,13 @@ export function eraseBrush(
         for (let px = minX; px <= maxX; px++) {
             const dx = px + 0.5 - x;
             const dy = py + 0.5 - y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > r) continue;
+            if (Math.hypot(dx, dy) > r) continue;
             const offset = (py * width + px) * 4;
-            const prev = rgba[offset + 3];
-            if (prev === 0) continue;
-
-            let nextAlpha = 0;
-            if (dist > hard) {
-                const t = (dist - hard) / (r - hard);
-                nextAlpha = Math.round(prev * t);
-            }
-            if (nextAlpha === 0) {
-                rgba[offset] = 0;
-                rgba[offset + 1] = 0;
-                rgba[offset + 2] = 0;
-                rgba[offset + 3] = 0;
-            } else {
-                rgba[offset + 3] = nextAlpha;
-            }
+            if (rgba[offset + 3] === 0) continue;
+            rgba[offset] = 0;
+            rgba[offset + 1] = 0;
+            rgba[offset + 2] = 0;
+            rgba[offset + 3] = 0;
             erased += 1;
         }
     }

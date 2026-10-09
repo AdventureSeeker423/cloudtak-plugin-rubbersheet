@@ -13,23 +13,35 @@
                     <span class='ie-brand-mark' />
                     <span>Edit Image</span>
                 </div>
-                <div class='ie-top-actions'>
+                <div class='ie-top-center'>
                     <button
                         type='button'
-                        class='ie-btn'
+                        class='ie-btn ie-btn-icon'
                         :disabled='!canUndo'
                         title='Undo (Ctrl+Z)'
                         @click='doUndo'
                     >
+                        <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                            <path
+                                fill='currentColor'
+                                d='M12.5 8c-2.6 0-5 1-6.9 2.6L3 8v8h8l-2.6-2.6A6.9 6.9 0 0 1 12.5 11c3 0 5.6 1.9 6.6 4.6l2.3-.8C20 11.3 16.5 8 12.5 8z'
+                            />
+                        </svg>
                         Undo
                     </button>
                     <button
                         type='button'
-                        class='ie-btn'
+                        class='ie-btn ie-btn-icon'
                         :disabled='!canRedo'
                         title='Redo (Ctrl+Y)'
                         @click='doRedo'
                     >
+                        <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                            <path
+                                fill='currentColor'
+                                d='M11.5 8c2.6 0 5 1 6.9 2.6L21 8v8h-8l2.6-2.6A6.9 6.9 0 0 0 11.5 11c-3 0-5.6 1.9-6.6 4.6l-2.3-.8C4 11.3 7.5 8 11.5 8z'
+                            />
+                        </svg>
                         Redo
                     </button>
                     <button
@@ -39,41 +51,23 @@
                         title='Discard all edits in this session'
                         @click='confirmRevert = true'
                     >
-                        Revert
+                        Revert To Original
                     </button>
-                    <span class='ie-sep' />
-                    <button
-                        type='button'
-                        class='ie-btn ie-btn-danger'
-                        :disabled='!hasSelection'
-                        title='Delete selection (Del)'
-                        @click='deleteSelection'
-                    >
-                        Delete
-                    </button>
-                    <button
-                        type='button'
-                        class='ie-btn'
-                        :disabled='!hasSelection'
-                        title='Deselect (Esc)'
-                        @click='clearSelection'
-                    >
-                        Deselect
-                    </button>
-                    <span class='ie-sep' />
+                </div>
+                <div class='ie-top-actions'>
                     <button
                         type='button'
                         class='ie-btn'
                         @click='emit("cancel")'
                     >
-                        Cancel
+                        Cancel Changes
                     </button>
                     <button
                         type='button'
-                        class='ie-btn ie-btn-primary'
+                        class='ie-btn ie-btn-save'
                         @click='emitApply'
                     >
-                        Apply
+                        Save Changes
                     </button>
                 </div>
             </header>
@@ -98,21 +92,6 @@
                     <button
                         type='button'
                         class='ie-tool'
-                        :class='{ active: tool === "color" }'
-                        title='Color Key — select every matching color'
-                        @click='setTool("color")'
-                    >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
-                            <path
-                                fill='currentColor'
-                                d='M3 17.2 12.8 7.4l3.8 3.8L6.8 21H3v-3.8zm14.6-9.2 2.1-2.1a1.5 1.5 0 0 0 0-2.1l-1.5-1.5a1.5 1.5 0 0 0-2.1 0l-2.1 2.1 3.6 3.6zM14 19h7v2h-7v-2z'
-                            />
-                        </svg>
-                        <span>Color</span>
-                    </button>
-                    <button
-                        type='button'
-                        class='ie-tool'
                         :class='{ active: tool === "eraser" }'
                         title='Eraser — paint transparency'
                         @click='setTool("eraser")'
@@ -124,6 +103,21 @@
                             />
                         </svg>
                         <span>Eraser</span>
+                    </button>
+                    <button
+                        type='button'
+                        class='ie-tool'
+                        :class='{ active: tool === "color" }'
+                        title='Selective color — select every matching color in the image'
+                        @click='setTool("color")'
+                    >
+                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                            <path
+                                fill='currentColor'
+                                d='M3 17.2 12.8 7.4l3.8 3.8L6.8 21H3v-3.8zm14.6-9.2 2.1-2.1a1.5 1.5 0 0 0 0-2.1l-1.5-1.5a1.5 1.5 0 0 0-2.1 0l-2.1 2.1 3.6 3.6zM14 19h7v2h-7v-2z'
+                            />
+                        </svg>
+                        <span class='ie-tool-multiline'>Selective<br>color</span>
                     </button>
                 </aside>
 
@@ -139,11 +133,46 @@
                     @pointerleave='onPointerLeave'
                 >
                     <canvas ref='canvasEl' />
+                    <div
+                        v-if='hasSelection'
+                        class='ie-selection-bar'
+                        @pointerdown.stop
+                        @wheel.stop
+                    >
+                        <button
+                            type='button'
+                            class='ie-btn ie-btn-danger ie-btn-icon'
+                            title='Delete selection (Del)'
+                            @click='deleteSelection'
+                        >
+                            <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                                <path
+                                    fill='currentColor'
+                                    d='M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9zm-1 12h12l1-12H5l1 12z'
+                                />
+                            </svg>
+                            Delete
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-btn ie-btn-icon'
+                            title='Deselect (Esc)'
+                            @click='clearSelection'
+                        >
+                            <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                                <path
+                                    fill='currentColor'
+                                    d='M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3 1.4 1.4z'
+                                />
+                            </svg>
+                            Deselect
+                        </button>
+                    </div>
                 </div>
 
                 <aside class='ie-options'>
                     <template v-if='tool === "wand"'>
-                        <div class='ie-opt-label'>Fuzziness</div>
+                        <div class='ie-opt-label'>Match range</div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
                             <span>Loose</span>
@@ -154,10 +183,10 @@
                             min='0'
                             max='80'
                             v-model.number='fuzziness'
-                            title='How similar colors get selected with the wand'
+                            title='How far from the clicked color still counts as a match'
                         >
                         <p class='ie-hint'>
-                            Click a connected color. Then Delete.
+                            Click to select. Shift add · Ctrl subtract. Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "color"'>
@@ -165,19 +194,15 @@
                         <div class='ie-swatch-row'>
                             <span
                                 class='ie-swatch'
-                                :style='{ background: targetColorCss }'
-                                title='Current target'
+                                :class='{ empty: !hasColorTarget }'
+                                :style='hasColorTarget ? { background: targetColorCss } : undefined'
+                                :title='hasColorTarget ? "Current target" : "Click the image to pick"'
                             />
-                            <button
-                                type='button'
-                                class='ie-btn ie-btn-compact'
-                                title='Reset to white'
-                                @click='resetTargetWhite'
-                            >
-                                White
-                            </button>
+                            <span class='ie-swatch-caption'>
+                                {{ hasColorTarget ? targetColorCss : 'Click image to pick' }}
+                            </span>
                         </div>
-                        <div class='ie-opt-label'>Fuzziness</div>
+                        <div class='ie-opt-label'>Match range</div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
                             <span>Loose</span>
@@ -188,10 +213,11 @@
                             min='0'
                             max='80'
                             v-model.number='fuzziness'
-                            title='How close a pixel must be to the target color'
+                            :disabled='!hasColorTarget'
+                            title='How far from the target color still counts as a match'
                         >
                         <p class='ie-hint'>
-                            Click to pick a color. Selects every match. Then Delete.
+                            Pick a color to select every match in the image. Then Delete.
                         </p>
                     </template>
                     <template v-else>
@@ -206,7 +232,7 @@
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
                         <p class='ie-hint'>
-                            Drag to erase. Circle shows brush size.
+                            Drag to erase. [ ] change size.
                         </p>
                     </template>
                     <p class='ie-hint ie-hint-muted'>
@@ -268,6 +294,7 @@ import {
     eraseBrush,
     eraseMask,
     floodSelect,
+    type FloodSelectMode,
     sampleColor,
     selectionOutlinePath,
 } from './image-edit.ts';
@@ -286,9 +313,10 @@ type Tool = 'wand' | 'color' | 'eraser';
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
 const brushSize = ref(12);
-const targetR = ref(255);
-const targetG = ref(255);
-const targetB = ref(255);
+const targetR = ref(0);
+const targetG = ref(0);
+const targetB = ref(0);
+const hasColorTarget = ref(false);
 const scale = ref(1);
 const panX = ref(0);
 const panY = ref(0);
@@ -306,6 +334,7 @@ const width = props.source.width;
 const height = props.source.height;
 const rgba = new Uint8Array(width * height * 4);
 const selectionMask = new Uint8Array(width * height);
+const selectionScratch = new Uint8Array(width * height);
 const history = new EditHistory();
 
 const working = document.createElement('canvas');
@@ -343,6 +372,7 @@ let hoverClientY = 0;
 let selectionPath: Path2D | null = null;
 let antsPhase = 0;
 let antsRaf = 0;
+let lastAntPaint = 0;
 
 const brushPreviewStyle = computed(() => {
     const d = Math.max(8, Math.min(48, brushSize.value));
@@ -390,10 +420,10 @@ function rebuildSelectionVisuals(): void {
         if (!selectionMask[i]) continue;
         count += 1;
         const o = i * 4;
-        data[o] = 56;
-        data[o + 1] = 139;
-        data[o + 2] = 253;
-        data[o + 3] = 70;
+        data[o] = 90;
+        data[o + 1] = 160;
+        data[o + 2] = 255;
+        data[o + 3] = 36;
     }
     tintCtx.putImageData(tint, 0, 0);
     hasSelection.value = count > 0;
@@ -407,6 +437,10 @@ function clearSelection(): void {
 }
 
 function applyColorSelection(): void {
+    if (!hasColorTarget.value) {
+        clearSelection();
+        return;
+    }
     colorSelect(
         rgba,
         width,
@@ -424,17 +458,11 @@ function applyColorSelection(): void {
 function setTool(next: Tool): void {
     tool.value = next;
     if (next === 'color') {
-        applyColorSelection();
+        if (hasColorTarget.value) applyColorSelection();
+        else clearSelection();
     } else if (next !== 'wand') {
         clearSelection();
     }
-}
-
-function resetTargetWhite(): void {
-    targetR.value = 255;
-    targetG.value = 255;
-    targetB.value = 255;
-    if (tool.value === 'color') applyColorSelection();
 }
 
 function deleteSelection(): void {
@@ -480,14 +508,17 @@ function paint(): void {
     if (hasSelection.value) {
         ctx.drawImage(tintCanvas, 0, 0);
         if (selectionPath) {
-            const dash = Math.max(2, 5 / scale.value);
-            ctx.lineWidth = Math.max(1 / scale.value, 1 / scale.value);
-            ctx.setLineDash([dash, dash]);
+            // Slow crawling ants in screen-stable dash length (Photoshop-like).
+            const dash = Math.max(3, 6 / scale.value);
+            const gap = dash;
+            const widthPx = Math.max(1 / scale.value, 1.25 / scale.value);
+            ctx.lineWidth = widthPx;
+            ctx.setLineDash([dash, gap]);
             ctx.lineDashOffset = -antsPhase / scale.value;
-            ctx.strokeStyle = '#ffffff';
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)';
             ctx.stroke(selectionPath);
             ctx.lineDashOffset = -(antsPhase / scale.value) + dash;
-            ctx.strokeStyle = '#111827';
+            ctx.strokeStyle = 'rgba(20,24,32,0.75)';
             ctx.stroke(selectionPath);
             ctx.setLineDash([]);
         }
@@ -581,7 +612,20 @@ function onPointerDown(event: PointerEvent): void {
     event.preventDefault();
 
     if (tool.value === 'wand') {
-        floodSelect(rgba, width, height, point.x, point.y, fuzziness.value, selectionMask);
+        let mode: FloodSelectMode = 'replace';
+        if (event.ctrlKey || event.metaKey) mode = 'subtract';
+        else if (event.shiftKey) mode = 'add';
+        floodSelect(
+            rgba,
+            width,
+            height,
+            point.x,
+            point.y,
+            fuzziness.value,
+            selectionMask,
+            mode,
+            selectionScratch,
+        );
         rebuildSelectionVisuals();
         paint();
         dragging = false;
@@ -594,6 +638,7 @@ function onPointerDown(event: PointerEvent): void {
             targetR.value = sampled.r;
             targetG.value = sampled.g;
             targetB.value = sampled.b;
+            hasColorTarget.value = true;
             applyColorSelection();
         }
         dragging = false;
@@ -670,7 +715,7 @@ function doUndo(): void {
     writeWorking();
     clearSelection();
     syncHistoryFlags();
-    if (tool.value === 'color') applyColorSelection();
+    if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 }
 
 function doRedo(): void {
@@ -678,7 +723,7 @@ function doRedo(): void {
     writeWorking();
     clearSelection();
     syncHistoryFlags();
-    if (tool.value === 'color') applyColorSelection();
+    if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 }
 
 function revertToOriginal(): void {
@@ -693,12 +738,20 @@ function revertToOriginal(): void {
     history.clear();
     clearSelection();
     syncHistoryFlags();
-    if (tool.value === 'color') applyColorSelection();
+    if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 }
 
 function onKeyDown(event: KeyboardEvent): void {
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+
+    if (confirmRevert.value) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            confirmRevert.value = false;
+        }
+        return;
+    }
 
     if (event.code === 'Space') {
         spaceDown = true;
@@ -715,17 +768,20 @@ function onKeyDown(event: KeyboardEvent): void {
         return;
     }
 
-    if (confirmRevert.value) {
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            confirmRevert.value = false;
-        }
-        return;
-    }
-
     if ((event.key === 'Delete' || event.key === 'Backspace') && hasSelection.value) {
         event.preventDefault();
         deleteSelection();
+        return;
+    }
+
+    if (event.key === '[' || event.key === ']') {
+        event.preventDefault();
+        const step = event.shiftKey ? 5 : 1;
+        const next = event.key === ']'
+            ? brushSize.value + step
+            : brushSize.value - step;
+        brushSize.value = Math.min(80, Math.max(2, next));
+        if (tool.value !== 'eraser') tool.value = 'eraser';
         return;
     }
 
@@ -760,9 +816,13 @@ function emitApply(): void {
 }
 
 function antsLoop(now: number): void {
-    antsPhase = (now / 30) % 1000;
-    if (hasSelection.value) paint();
     antsRaf = requestAnimationFrame(antsLoop);
+    if (!hasSelection.value) return;
+    // ~12 fps crawl — readable ants without strobing a full redraw.
+    if (now - lastAntPaint < 80) return;
+    lastAntPaint = now;
+    antsPhase = (now / 140) % 1000;
+    paint();
 }
 
 watch([brushSize, tool], () => {
@@ -770,7 +830,7 @@ watch([brushSize, tool], () => {
 });
 
 watch(fuzziness, () => {
-    if (tool.value === 'color') applyColorSelection();
+    if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 });
 
 let resizeObserver: ResizeObserver | null = null;
@@ -812,9 +872,9 @@ onUnmounted(() => {
 }
 
 .ie-topbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
     height: 48px;
     padding: 0 14px;
@@ -830,6 +890,7 @@ onUnmounted(() => {
     font-weight: 600;
     font-size: 14px;
     letter-spacing: 0.02em;
+    justify-self: start;
 }
 
 .ie-brand-mark {
@@ -840,17 +901,19 @@ onUnmounted(() => {
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
-.ie-top-actions {
+.ie-top-center {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
 }
 
-.ie-sep {
-    width: 1px;
-    height: 22px;
-    margin: 0 4px;
-    background: #3a414d;
+.ie-top-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    justify-self: end;
 }
 
 .ie-btn {
@@ -866,6 +929,12 @@ onUnmounted(() => {
     cursor: pointer;
 }
 
+.ie-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .ie-btn:hover:not(:disabled) {
     background: #363c48;
     border-color: #525b6a;
@@ -876,14 +945,14 @@ onUnmounted(() => {
     cursor: default;
 }
 
-.ie-btn-primary {
-    background: #3d7cf0;
-    border-color: #2f6ae0;
+.ie-btn-save {
+    background: #2f9e5a;
+    border-color: #248a4b;
     color: #fff;
 }
 
-.ie-btn-primary:hover:not(:disabled) {
-    background: #4d8aff;
+.ie-btn-save:hover:not(:disabled) {
+    background: #37b067;
 }
 
 .ie-btn-danger {
@@ -939,6 +1008,12 @@ onUnmounted(() => {
     color: #fff;
 }
 
+.ie-tool-multiline {
+    display: block;
+    line-height: 1.15;
+    text-align: center;
+}
+
 .ie-view {
     position: relative;
     overflow: hidden;
@@ -952,6 +1027,35 @@ onUnmounted(() => {
     display: block;
     width: 100%;
     height: 100%;
+}
+
+.ie-selection-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    transform: translateX(-50%);
+    background: rgba(34, 38, 46, 0.94);
+    border: 1px solid #3a414d;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+    animation: ie-selection-in 160ms ease-out;
+}
+
+@keyframes ie-selection-in {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 }
 
 .ie-options {
@@ -1034,6 +1138,7 @@ onUnmounted(() => {
 }
 
 .ie-swatch {
+    flex: 0 0 auto;
     width: 36px;
     height: 36px;
     border-radius: 8px;
@@ -1043,9 +1148,21 @@ onUnmounted(() => {
         0 0 0 1px #3a414d;
 }
 
-.ie-btn-compact {
-    padding: 4px 9px;
+.ie-swatch.empty {
+    background-color: #1b1e24;
+    background-image:
+        linear-gradient(45deg, #3a414d 25%, transparent 25%),
+        linear-gradient(-45deg, #3a414d 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #3a414d 75%),
+        linear-gradient(-45deg, transparent 75%, #3a414d 75%);
+    background-size: 8px 8px;
+    background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.ie-swatch-caption {
     font-size: 11px;
+    line-height: 1.3;
+    color: #c5cad3;
 }
 
 .ie-modal-backdrop {

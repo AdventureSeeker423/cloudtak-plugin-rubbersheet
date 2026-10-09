@@ -43,6 +43,33 @@ test('flood select marks contiguous white border but not an enclosed color block
     assert.equal(alpha(rgba, w, 0, 0), 255);
 });
 
+test('flood select add unions regions; subtract removes them', () => {
+    const w = 5;
+    const h = 1;
+    const rgba = solid(w, h, 255, 255, 255);
+    setPixel(rgba, w, 2, 0, 80, 180, 160);
+    setPixel(rgba, w, 3, 0, 80, 180, 160);
+    setPixel(rgba, w, 4, 0, 80, 180, 160);
+    const mask = new Uint8Array(w);
+    const scratch = new Uint8Array(w);
+
+    floodSelect(rgba, w, h, 0, 0, 0, mask, 'replace', scratch);
+    assert.equal(mask[0], 1);
+    assert.equal(mask[1], 1);
+    assert.equal(mask[2], 0);
+
+    floodSelect(rgba, w, h, 4, 0, 0, mask, 'add', scratch);
+    assert.equal(mask[0], 1);
+    assert.equal(mask[4], 1);
+    assert.equal(mask[2], 1);
+
+    floodSelect(rgba, w, h, 0, 0, 0, mask, 'subtract', scratch);
+    assert.equal(mask[0], 0);
+    assert.equal(mask[1], 0);
+    assert.equal(mask[2], 1);
+    assert.equal(mask[4], 1);
+});
+
 test('erase mask clears selected pixels', () => {
     const w = 3;
     const h = 1;

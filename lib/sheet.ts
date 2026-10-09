@@ -651,9 +651,8 @@ export async function uploadCurrent(mission: MissionChoice): Promise<void> {
 }
 
 /**
- * Bake a north-up GeoTIFF, import it through CloudTAK, and add it as a Files overlay.
- * GeoTIFF is used because CloudTAK's KMZ importer only tiles LatLonBox GroundOverlays,
- * not gx:LatLonQuad sheets.
+ * Bake a north-up GeoTIFF, import it through CloudTAK, and add it as a Files overlay
+ * (same path as Files → Add to Map as Overlay).
  */
 export async function addCurrentAsOverlay(goToOverlays?: () => void): Promise<void> {
     if (!sheetUi.hasSheet || !source || !quad || sheetUi.busy) return;
