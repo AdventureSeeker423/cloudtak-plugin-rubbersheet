@@ -229,6 +229,24 @@ function handleElement(title: string, fill: string): HTMLDivElement {
     return element;
 }
 
+function rotateHandleElement(): HTMLDivElement {
+    const element = document.createElement('div');
+    element.title = 'Drag to rotate';
+    element.style.width = '28px';
+    element.style.height = '28px';
+    element.style.display = 'flex';
+    element.style.alignItems = 'center';
+    element.style.justifyContent = 'center';
+    element.style.borderRadius = '50%';
+    element.style.background = '#206bc4';
+    element.style.border = '2px solid #ffffff';
+    element.style.boxShadow = '0 0 0 1px #111111';
+    element.style.cursor = 'grab';
+    element.style.touchAction = 'none';
+    element.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>`;
+    return element;
+}
+
 function ensureMarkers(): void {
     const mapHost = host;
     if (!mapHost || !quad || markers.length) return;
@@ -242,8 +260,7 @@ function ensureMarkers(): void {
         element.addEventListener('pointerdown', (event) => startCorner(event, index));
         return new Marker({ element, anchor: 'center' }).setLngLat(current[index]).addTo(mapHost.map);
     });
-    const knobElement = handleElement('Drag to rotate', '#206bc4');
-    knobElement.style.border = '2px solid #ffffff';
+    const knobElement = rotateHandleElement();
     knobElement.addEventListener('pointerdown', startRotate);
     const knobAt = knobLngLat() ?? current[0];
     knob = new Marker({ element: knobElement, anchor: 'center' }).setLngLat(knobAt).addTo(mapHost.map);

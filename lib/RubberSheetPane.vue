@@ -3,7 +3,7 @@
         <p class='text-secondary mb-3'>
             Drag a corner to warp the sheet. Shift-drag a corner to scale about
             the opposite corner. Alt-drag (or Shift+Alt) to scale from the center.
-            Drag the blue knob to rotate, or drag the image to move it.
+            Drag the rotate icon to rotate, or drag the image to move it.
         </p>
 
         <label
