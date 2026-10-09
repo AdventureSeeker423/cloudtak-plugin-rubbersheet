@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { eraseBrush, floodErase } from '../lib/image-edit.ts';
+import { colorSelect, eraseBrush, eraseMask, floodErase, floodSelect } from '../lib/image-edit.ts';
 
 function solid(width: number, height: number, r: number, g: number, b: number, a = 255): Uint8Array {
     const rgba = new Uint8Array(width * height * 4);
@@ -26,11 +26,38 @@ function alpha(rgba: Uint8Array, width: number, x: number, y: number): number {
     return rgba[(y * width + x) * 4 + 3];
 }
 
+test('flood select marks contiguous white border but not an enclosed color block', () => {
+    const w = 5;
+    const h = 5;
+    const rgba = solid(w, h, 255, 255, 255);
+    for (let y = 1; y <= 3; y++) {
+        for (let x = 1; x <= 3; x++) {
+            setPixel(rgba, w, x, y, 80, 180, 160);
+        }
+    }
+    const mask = new Uint8Array(w * h);
+    const count = floodSelect(rgba, w, h, 0, 0, 10, mask);
+    assert.ok(count >= 8);
+    assert.equal(mask[0], 1);
+    assert.equal(mask[2 * w + 2], 0);
+    assert.equal(alpha(rgba, w, 0, 0), 255);
+});
+
+test('erase mask clears selected pixels', () => {
+    const w = 3;
+    const h = 1;
+    const rgba = solid(w, h, 255, 255, 255);
+    const mask = new Uint8Array([1, 1, 0]);
+    eraseMask(rgba, w, h, mask);
+    assert.equal(alpha(rgba, w, 0, 0), 0);
+    assert.equal(alpha(rgba, w, 1, 0), 0);
+    assert.equal(alpha(rgba, w, 2, 0), 255);
+});
+
 test('flood erase clears contiguous white border but not an enclosed color block', () => {
     const w = 5;
     const h = 5;
     const rgba = solid(w, h, 255, 255, 255);
-    // Center 3x3 teal block
     for (let y = 1; y <= 3; y++) {
         for (let x = 1; x <= 3; x++) {
             setPixel(rgba, w, x, y, 80, 180, 160);
@@ -41,12 +68,11 @@ test('flood erase clears contiguous white border but not an enclosed color block
     assert.ok(erased >= 8);
     assert.equal(alpha(rgba, w, 0, 0), 0);
     assert.equal(alpha(rgba, w, 4, 4), 0);
-    // Interior teal remains
     assert.equal(alpha(rgba, w, 2, 2), 255);
     assert.equal(rgba[(2 * w + 2) * 4], 80);
 });
 
-test('flood erase respects tolerance', () => {
+test('flood erase respects fuzziness', () => {
     const w = 3;
     const h = 1;
     const rgba = solid(w, h, 255, 255, 255);
@@ -57,6 +83,22 @@ test('flood erase respects tolerance', () => {
     assert.equal(alpha(rgba, w, 0, 0), 0);
     assert.equal(alpha(rgba, w, 1, 0), 0);
     assert.equal(alpha(rgba, w, 2, 0), 255);
+});
+
+test('color select finds matching pixels everywhere, not just contiguous', () => {
+    const w = 5;
+    const h = 5;
+    const rgba = solid(w, h, 80, 180, 160);
+    setPixel(rgba, w, 0, 0, 255, 255, 255);
+    setPixel(rgba, w, 4, 4, 255, 255, 255);
+    setPixel(rgba, w, 2, 2, 250, 250, 250);
+    const mask = new Uint8Array(w * h);
+    const count = colorSelect(rgba, w, h, 255, 255, 255, 20, mask);
+    assert.equal(count, 3);
+    assert.equal(mask[0], 1);
+    assert.equal(mask[4 * w + 4], 1);
+    assert.equal(mask[2 * w + 2], 1);
+    assert.equal(mask[1], 0);
 });
 
 test('erase brush punches a hole', () => {

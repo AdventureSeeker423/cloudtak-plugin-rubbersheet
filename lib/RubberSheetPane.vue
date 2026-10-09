@@ -1,7 +1,6 @@
 <template>
     <ImageEditor
         v-if='editing && editSource'
-        class='rubber-edit-pane'
         :source='editSource'
         @apply='onEditApply'
         @cancel='onEditCancel'
@@ -14,7 +13,7 @@
             Drag a corner to warp the sheet. Shift-drag a corner to scale about
             the opposite corner. Alt-drag (or Shift+Alt) to scale from the center.
             Drag the rotate icon to rotate, or drag the image to move it.
-            Use Edit Image to clear backgrounds with the wand or eraser.
+            Use Edit Image for a fullscreen wand / eraser editor.
         </p>
 
         <label
@@ -270,10 +269,3 @@ function onFormat(event: Event): void {
     }
 }
 </script>
-
-<style scoped>
-.rubber-edit-pane {
-    height: calc(100vh - 120px);
-    min-height: 420px;
-}
-</style>
