@@ -311,7 +311,7 @@
                         >
                         <div class='ie-brush-value'>{{ stampSize }}px</div>
                         <p class='ie-hint'>
-                            Click to place. Click an icon again to remove. [ ] size.
+                            Pick an icon, then click to place. Esc clears the pick. Click a placed icon to remove. [ ] size.
                         </p>
                     </template>
                     <template v-else>
@@ -424,7 +424,7 @@ type Tool = 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
 const brushSize = ref(12);
-const stampKind = ref<StampKind>('first-aid');
+const stampKind = ref<StampKind | null>(null);
 const stampSize = ref(40);
 const facilityCatalog = FACILITY_STAMP_CATALOG;
 const numberCatalog = NUMBER_STAMP_CATALOG;
@@ -766,11 +766,13 @@ function placeOrRemoveStamp(x: number, y: number): void {
         pushEdit();
         stamps = stamps.filter((stamp) => stamp.id !== hit.id);
     } else {
+        const kind = stampKind.value;
+        if (!kind) return;
         const at = ensureStampFits(x, y, stampSize.value);
         pushEdit();
         stamps.push({
             id: nextStampId++,
-            kind: stampKind.value,
+            kind,
             x: at.x,
             y: at.y,
             size: stampSize.value,
@@ -871,7 +873,7 @@ function paint(): void {
                 ctx.setLineDash([4 / scale.value, 3 / scale.value]);
                 ctx.stroke();
                 ctx.setLineDash([]);
-            } else {
+            } else if (stampKind.value) {
                 drawStampAt(ctx, stampKind.value, hover.x, hover.y, stampSize.value, 0.55);
             }
         }
@@ -1193,6 +1195,12 @@ function onKeyDown(event: KeyboardEvent): void {
     }
 
     if (event.key === 'Escape') {
+        if (tool.value === 'stamp' && stampKind.value) {
+            event.preventDefault();
+            stampKind.value = null;
+            paint();
+            return;
+        }
         if (hasSelection.value) {
             event.preventDefault();
             clearSelection();
