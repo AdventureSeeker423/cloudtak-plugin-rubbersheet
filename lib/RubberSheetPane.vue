@@ -94,6 +94,14 @@
             </button>
             <button
                 type='button'
+                class='btn btn-outline-primary'
+                :disabled='!sheetUi.hasSheet || sheetUi.busy'
+                @click='onAddOverlay'
+            >
+                Add to Map as Overlay
+            </button>
+            <button
+                type='button'
                 class='btn btn-outline-secondary'
                 :disabled='!sheetUi.hasSheet || sheetUi.busy'
                 @click='clearSheet'
@@ -157,6 +165,7 @@ import { computed, onMounted } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import PdfPagePicker from './PdfPagePicker.vue';
 import {
+    addCurrentAsOverlay,
     bind,
     clearSheet,
     closeMissionPicker,
@@ -179,6 +188,12 @@ const canExport = computed(() => {
 onMounted(() => {
     bind(props.api);
 });
+
+function onAddOverlay(): void {
+    void addCurrentAsOverlay(() => {
+        void props.api.router.push('/menu/overlays');
+    });
+}
 
 function onFile(event: Event): void {
     const target = event.target;

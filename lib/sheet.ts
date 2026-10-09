@@ -20,6 +20,7 @@ import { makeExport } from './make-export.ts';
 import { listWritableMissions, uploadMissionFile } from './missions.ts';
 import { opacityState, watchOpacity } from './opacity.ts';
 import OpacityBar from './OpacityBar.vue';
+import { importAsOverlay } from './overlay.ts';
 import { closePdf, openPdf, renderPdfPage, renderPdfThumbnail } from './pdf-render.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
 import type { Raster } from './warp.ts';
@@ -184,11 +185,14 @@ function trackPointer(event: PointerEvent, onMove: (ev: PointerEvent) => void): 
 function startCorner(event: PointerEvent, index: CornerIndex): void {
     if (!quad) return;
     const origin = cloneQuad(quad);
+    // Lock the mode at pointer-down so a mid-drag Shift/Alt press cannot switch
+    // a plain warp into a scale.
+    const mode = event.altKey ? 'center' : event.shiftKey ? 'opposite' : 'corner';
     trackPointer(event, (ev) => {
         const cursor = pointerToLngLat(ev);
-        if (ev.altKey) {
+        if (mode === 'center') {
             quad = scaleAboutCenter(origin, index, cursor);
-        } else if (ev.shiftKey) {
+        } else if (mode === 'opposite') {
             quad = scaleAboutOpposite(origin, index, cursor);
         } else {
             const next = cloneQuad(origin);
@@ -274,6 +278,13 @@ function applyOpacity(value: number): void {
     }
 }
 
+function applyFlatWarp(): void {
+    const overlay = host?.map.getSource(SOURCE_ID) as { setWarp?: (mode: string) => void } | undefined;
+    // Flat = bilinear rubber-sheet. Default "auto"/"perspective" foreshortens the
+    // whole image when one corner moves, which feels like unwanted scaling.
+    overlay?.setWarp?.('flat');
+}
+
 function attachRasterLayer(): void {
     if (!host || !quad || !overlayCanvas) return;
     const map = host.map;
@@ -287,6 +298,7 @@ function attachRasterLayer(): void {
         animate: false,
         coordinates: quad,
     });
+    applyFlatWarp();
     map.addLayer({
         id: LAYER_ID,
         type: 'raster',
@@ -518,6 +530,40 @@ export async function uploadCurrent(mission: MissionChoice): Promise<void> {
         await uploadMissionFile(mission, file);
         sheetUi.missions = null;
         sheetUi.status = `Uploaded ${file.filename} to ${mission.name}`;
+    } catch (err) {
+        sheetUi.status = '';
+        sheetUi.error = message(err);
+    } finally {
+        sheetUi.busy = false;
+    }
+}
+
+/**
+ * Bake a north-up GeoTIFF, import it through CloudTAK, and add it as a Files overlay.
+ * GeoTIFF is used because CloudTAK's KMZ importer only tiles LatLonBox GroundOverlays,
+ * not gx:LatLonQuad sheets.
+ */
+export async function addCurrentAsOverlay(goToOverlays?: () => void): Promise<void> {
+    if (!sheetUi.hasSheet || !source || !quad || sheetUi.busy) return;
+    sheetUi.busy = true;
+    sheetUi.error = '';
+    sheetUi.missions = null;
+    try {
+        sheetUi.status = 'Building GeoTIFF for overlay…';
+        await new Promise((resolve) => {
+            setTimeout(resolve, 0);
+        });
+        const file = await makeExport('geotiff', {
+            name: sheetUi.name,
+            opacity: opacityState.value,
+            quad,
+            source,
+        });
+        await importAsOverlay(file, sheetUi.name, (text) => {
+            sheetUi.status = text;
+        });
+        sheetUi.status = `Added ${file.filename} as a map overlay`;
+        goToOverlays?.();
     } catch (err) {
         sheetUi.status = '';
         sheetUi.error = message(err);
