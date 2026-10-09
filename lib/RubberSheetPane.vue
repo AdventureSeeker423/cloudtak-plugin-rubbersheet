@@ -16,7 +16,7 @@
             opposite corner, or Alt (or Shift+Alt) to scale from the center —
             press or release mid-drag to switch modes. Drag the rotate icon to
             rotate, or drag the image to move it.
-            Use Edit Image for a fullscreen wand / eraser editor.
+            Use Edit Image for wand, eraser, and facility icon stamps.
         </p>
 
         <label
@@ -103,7 +103,7 @@
                 type='button'
                 class='btn btn-primary'
                 :disabled='!canExport'
-                @click='downloadCurrent'
+                @click='onDownload'
             >
                 Download
             </button>
@@ -167,7 +167,7 @@
                         type='button'
                         class='btn btn-outline-primary'
                         :disabled='sheetUi.busy'
-                        @click='uploadCurrent(mission)'
+                        @click='onUpload(mission)'
                     >
                         {{ mission.name }}
                     </button>
@@ -183,6 +183,50 @@
             </button>
         </div>
     </div>
+
+    <Teleport to='body'>
+        <div
+            v-if='donePrompt'
+            class='rubber-done-backdrop'
+            @click.self='keepEditing'
+        >
+            <div
+                class='rubber-done-modal'
+                role='alertdialog'
+                aria-labelledby='rubber-done-title'
+                aria-describedby='rubber-done-body'
+            >
+                <h2
+                    id='rubber-done-title'
+                    class='rubber-done-title'
+                >
+                    {{ donePrompt.title }}
+                </h2>
+                <p
+                    id='rubber-done-body'
+                    class='rubber-done-body'
+                >
+                    {{ donePrompt.body }}
+                </p>
+                <div class='rubber-done-actions'>
+                    <button
+                        type='button'
+                        class='btn btn-outline-secondary'
+                        @click='keepEditing'
+                    >
+                        Keep editing
+                    </button>
+                    <button
+                        type='button'
+                        class='btn btn-primary'
+                        @click='exitRubberSheet'
+                    >
+                        Close Rubber Sheet
+                    </button>
+                </div>
+            </div>
+        </div>
+    </Teleport>
 </template>
 
 <script setup lang='ts'>
@@ -204,7 +248,7 @@ import {
     openPagePicker,
     uploadCurrent,
 } from './sheet.ts';
-import { sheetUi } from './ui-state.ts';
+import { sheetUi, type MissionChoice } from './ui-state.ts';
 
 const props = defineProps<{
     api: PluginAPI;
@@ -214,6 +258,13 @@ const editing = ref(false);
 const editSource = shallowRef<HTMLCanvasElement | null>(null);
 const editPristine = shallowRef<Uint8Array | null>(null);
 const editHistory = shallowRef<EditHistorySnapshot | null>(null);
+
+type DonePrompt = {
+    title: string;
+    body: string;
+};
+
+const donePrompt = ref<DonePrompt | null>(null);
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
@@ -254,10 +305,45 @@ function onEditCancel(): void {
     editHistory.value = null;
 }
 
-function onAddOverlay(): void {
-    void addCurrentAsOverlay(() => {
-        void props.api.router.push('/menu/overlays');
-    });
+function showDonePrompt(title: string, body: string): void {
+    donePrompt.value = { title, body };
+}
+
+function keepEditing(): void {
+    donePrompt.value = null;
+}
+
+async function exitRubberSheet(): Promise<void> {
+    donePrompt.value = null;
+    await clearSheet();
+    void props.api.router.push('/');
+}
+
+async function onDownload(): Promise<void> {
+    const ok = await downloadCurrent();
+    if (!ok) return;
+    showDonePrompt(
+        'Download complete',
+        'Your export is saved. Keep working on this sheet, or close Rubber Sheet when you are finished.',
+    );
+}
+
+async function onUpload(mission: MissionChoice): Promise<void> {
+    const ok = await uploadCurrent(mission);
+    if (!ok) return;
+    showDonePrompt(
+        'Upload complete',
+        `It's in ${mission.name}. Keep refining this sheet, or close Rubber Sheet for now.`,
+    );
+}
+
+async function onAddOverlay(): Promise<void> {
+    const ok = await addCurrentAsOverlay();
+    if (!ok) return;
+    showDonePrompt(
+        'Overlay added',
+        'Your sheet is on the map as an overlay. Keep fine-tuning the live warp, or close Rubber Sheet when you are done.',
+    );
 }
 
 function onFile(event: Event): void {
@@ -283,3 +369,47 @@ function onFormat(event: Event): void {
     }
 }
 </script>
+
+<style scoped>
+.rubber-done-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(12, 14, 18, 0.55);
+}
+
+.rubber-done-modal {
+    width: min(100%, 420px);
+    padding: 22px 22px 18px;
+    border-radius: 12px;
+    background: #212529;
+    color: #f8f9fa;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.rubber-done-title {
+    margin: 0 0 8px;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.rubber-done-body {
+    margin: 0 0 18px;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: #adb5bd;
+}
+
+.rubber-done-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+</style>

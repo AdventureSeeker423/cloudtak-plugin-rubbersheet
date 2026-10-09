@@ -677,8 +677,9 @@ async function currentFile(): Promise<{ filename: string; bytes: Uint8Array; mim
     });
 }
 
-export async function downloadCurrent(): Promise<void> {
-    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return;
+/** @returns true when the download finished successfully */
+export async function downloadCurrent(): Promise<boolean> {
+    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
     try {
@@ -691,9 +692,11 @@ export async function downloadCurrent(): Promise<void> {
         link.click();
         URL.revokeObjectURL(url);
         sheetUi.status = `Downloaded ${file.filename}`;
+        return true;
     } catch (err) {
         sheetUi.status = '';
         sheetUi.error = message(err);
+        return false;
     } finally {
         sheetUi.busy = false;
     }
@@ -713,8 +716,9 @@ export function closeMissionPicker(): void {
     sheetUi.missions = null;
 }
 
-export async function uploadCurrent(mission: MissionChoice): Promise<void> {
-    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return;
+/** @returns true when the upload finished successfully */
+export async function uploadCurrent(mission: MissionChoice): Promise<boolean> {
+    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
     try {
@@ -722,9 +726,11 @@ export async function uploadCurrent(mission: MissionChoice): Promise<void> {
         await uploadMissionFile(mission, file);
         sheetUi.missions = null;
         sheetUi.status = `Uploaded ${file.filename} to ${mission.name}`;
+        return true;
     } catch (err) {
         sheetUi.status = '';
         sheetUi.error = message(err);
+        return false;
     } finally {
         sheetUi.busy = false;
     }
@@ -733,9 +739,10 @@ export async function uploadCurrent(mission: MissionChoice): Promise<void> {
 /**
  * Bake a north-up GeoTIFF, import it through CloudTAK, and add it as a Files overlay
  * (same path as Files → Add to Map as Overlay).
+ * @returns true when the overlay was added successfully
  */
-export async function addCurrentAsOverlay(goToOverlays?: () => void): Promise<void> {
-    if (!sheetUi.hasSheet || !source || !quad || sheetUi.busy) return;
+export async function addCurrentAsOverlay(): Promise<boolean> {
+    if (!sheetUi.hasSheet || !source || !quad || sheetUi.busy) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
     sheetUi.missions = null;
@@ -754,10 +761,11 @@ export async function addCurrentAsOverlay(goToOverlays?: () => void): Promise<vo
             sheetUi.status = text;
         });
         sheetUi.status = `Added ${file.filename} as a map overlay`;
-        goToOverlays?.();
+        return true;
     } catch (err) {
         sheetUi.status = '';
         sheetUi.error = message(err);
+        return false;
     } finally {
         sheetUi.busy = false;
     }

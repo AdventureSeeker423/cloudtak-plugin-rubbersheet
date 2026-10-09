@@ -72,7 +72,10 @@
                 </div>
             </header>
 
-            <div class='ie-body'>
+            <div
+                class='ie-body'
+                :style='bodyStyle'
+            >
                 <aside class='ie-tools'>
                     <button
                         type='button'
@@ -137,6 +140,21 @@
                         </svg>
                         <span class='ie-tool-multiline'>Selective<br>Color</span>
                     </button>
+                    <button
+                        type='button'
+                        class='ie-tool'
+                        :class='{ active: tool === "stamp" }'
+                        title='Icons — place or remove facility markers'
+                        @click='setTool("stamp")'
+                    >
+                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                            <path
+                                fill='currentColor'
+                                d='M12 2a4 4 0 0 1 4 4c0 2.2-1.8 5.2-4 8.5C9.8 11.2 8 8.2 8 6a4 4 0 0 1 4-4zm0 5.5A1.5 1.5 0 1 0 12 4a1.5 1.5 0 0 0 0 3.5zM6 20.5c0-2.5 2.7-4.5 6-4.5s6 2 6 4.5V22H6v-1.5z'
+                            />
+                        </svg>
+                        <span>Icons</span>
+                    </button>
                 </aside>
 
                 <div
@@ -188,7 +206,10 @@
                     </div>
                 </div>
 
-                <aside class='ie-options'>
+                <aside
+                    class='ie-options'
+                    :class='{ "ie-options-wide": tool === "stamp" }'
+                >
                     <template v-if='tool === "wand"'>
                         <div class='ie-opt-label'>Match range</div>
                         <div class='ie-range-labels'>
@@ -242,6 +263,55 @@
                         >
                         <p class='ie-hint'>
                             Pick a color to select every match in the image. Then Delete.
+                        </p>
+                    </template>
+                    <template v-else-if='tool === "stamp"'>
+                        <div class='ie-opt-label'>Facility</div>
+                        <div class='ie-stamp-grid'>
+                            <button
+                                v-for='entry in facilityCatalog'
+                                :key='entry.kind'
+                                type='button'
+                                class='ie-stamp-swatch'
+                                :class='{ active: stampKind === entry.kind }'
+                                :title='entry.label'
+                                @click='stampKind = entry.kind'
+                            >
+                                <StampIcon
+                                    :kind='entry.kind'
+                                    :size='32'
+                                />
+                                <span>{{ entry.short }}</span>
+                            </button>
+                        </div>
+                        <div class='ie-opt-label'>Numbered placards</div>
+                        <div class='ie-stamp-grid ie-stamp-grid-numbers'>
+                            <button
+                                v-for='entry in numberCatalog'
+                                :key='entry.kind'
+                                type='button'
+                                class='ie-stamp-swatch ie-stamp-swatch-number'
+                                :class='{ active: stampKind === entry.kind }'
+                                :title='entry.label'
+                                @click='stampKind = entry.kind'
+                            >
+                                <StampIcon
+                                    :kind='entry.kind'
+                                    :size='28'
+                                />
+                            </button>
+                        </div>
+                        <div class='ie-opt-label'>Icon size</div>
+                        <input
+                            class='ie-range'
+                            type='range'
+                            min='16'
+                            max='96'
+                            v-model.number='stampSize'
+                        >
+                        <div class='ie-brush-value'>{{ stampSize }}px</div>
+                        <p class='ie-hint'>
+                            Click to place. Click an icon again to remove. [ ] size.
                         </p>
                     </template>
                     <template v-else>
@@ -312,7 +382,7 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { EditHistory, type EditHistorySnapshot } from './edit-history.ts';
+import { EditHistory, EDIT_HISTORY_CAP, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
     eraseBrush,
@@ -323,6 +393,17 @@ import {
     sampleColor,
     selectionOutlinePath,
 } from './image-edit.ts';
+import StampIcon from './StampIcon.vue';
+import {
+    FACILITY_STAMP_CATALOG,
+    NUMBER_STAMP_CATALOG,
+    cloneStamps,
+    drawStampAt,
+    hitTestStamp,
+    stampIntoRgba,
+    type PlacedStamp,
+    type StampKind,
+} from './stamp-icons.ts';
 
 const props = defineProps<{
     source: HTMLCanvasElement;
@@ -337,11 +418,15 @@ const emit = defineEmits<{
     cancel: [];
 }>();
 
-type Tool = 'wand' | 'rect' | 'color' | 'eraser';
+type Tool = 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
 
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
 const brushSize = ref(12);
+const stampKind = ref<StampKind>('first-aid');
+const stampSize = ref(40);
+const facilityCatalog = FACILITY_STAMP_CATALOG;
+const numberCatalog = NUMBER_STAMP_CATALOG;
 const targetR = ref(0);
 const targetG = ref(0);
 const targetB = ref(0);
@@ -389,6 +474,16 @@ const original = props.pristine && props.pristine.length === rgba.length
     : new Uint8Array(initial.data);
 if (props.history) history.importSnapshot(props.history);
 
+/** Stamps placed this session — parallel undo stacks stay aligned with EditHistory. */
+let stamps: PlacedStamp[] = [];
+let stampPast: PlacedStamp[][] = props.history
+    ? Array.from({ length: history.undoCount }, () => [])
+    : [];
+let stampFuture: PlacedStamp[][] = props.history
+    ? Array.from({ length: history.redoCount }, () => [])
+    : [];
+let nextStampId = 1;
+
 let dragging = false;
 let panning = false;
 let strokeActive = false;
@@ -429,15 +524,28 @@ const targetColorCss = computed(
 const cursorClass = computed(() => {
     if (panning || spaceDown) return 'cursor-pan';
     if (tool.value === 'eraser') return 'cursor-none';
+    if (tool.value === 'stamp') return 'cursor-stamp';
     if (tool.value === 'color') return 'cursor-eyedrop';
     if (tool.value === 'rect') return 'cursor-cross';
     return 'cursor-wand';
 });
 
+const bodyStyle = computed(() => ({
+    gridTemplateColumns: tool.value === 'stamp' ? '72px 1fr 260px' : '72px 1fr 200px',
+}));
+
 function syncHistoryFlags(): void {
     canUndo.value = history.canUndo;
     canRedo.value = history.canRedo;
-    canRevert.value = !buffersMatch(rgba, original);
+    canRevert.value = !buffersMatch(rgba, original) || stamps.length > 0;
+}
+
+/** Snapshot pixels + stamp list before a mutating edit. */
+function pushEdit(): void {
+    history.push(rgba);
+    stampPast.push(cloneStamps(stamps));
+    if (stampPast.length > EDIT_HISTORY_CAP) stampPast.shift();
+    stampFuture = [];
 }
 
 function buffersMatch(a: Uint8Array, b: Uint8Array): boolean {
@@ -451,6 +559,9 @@ function buffersMatch(a: Uint8Array, b: Uint8Array): boolean {
 function writeWorking(): void {
     const image = new ImageData(new Uint8ClampedArray(rgba), width, height);
     workingCtx.putImageData(image, 0, 0);
+    for (const stamp of stamps) {
+        drawStampAt(workingCtx, stamp.kind, stamp.x, stamp.y, stamp.size);
+    }
 }
 
 function rebuildSelectionVisuals(): void {
@@ -502,7 +613,7 @@ function setTool(next: Tool): void {
     if (next === 'color') {
         if (hasColorTarget.value) applyColorSelection();
         else clearSelection();
-    } else if (next === 'eraser') {
+    } else if (next === 'eraser' || next === 'stamp') {
         clearSelection();
     }
     // Wand / Rect keep the current selection.
@@ -511,11 +622,39 @@ function setTool(next: Tool): void {
 
 function deleteSelection(): void {
     if (!hasSelection.value) return;
-    history.push(rgba);
+    pushEdit();
     eraseMask(rgba, width, height, selectionMask);
     writeWorking();
     clearSelection();
     syncHistoryFlags();
+}
+
+function placeOrRemoveStamp(x: number, y: number): void {
+    const hit = hitTestStamp(stamps, x, y);
+    pushEdit();
+    if (hit) {
+        stamps = stamps.filter((stamp) => stamp.id !== hit.id);
+    } else {
+        stamps.push({
+            id: nextStampId++,
+            kind: stampKind.value,
+            x,
+            y,
+            size: stampSize.value,
+        });
+    }
+    writeWorking();
+    syncHistoryFlags();
+    paint();
+}
+
+/** Bake session stamps into the pixel buffer (used on Save). */
+function bakeStamps(): void {
+    if (!stamps.length) return;
+    for (const stamp of stamps) {
+        stampIntoRgba(rgba, width, height, stamp.kind, stamp.x, stamp.y, stamp.size);
+    }
+    stamps = [];
 }
 
 function paint(): void {
@@ -585,6 +724,24 @@ function paint(): void {
         ctx.lineDashOffset = 0;
         ctx.fillStyle = 'rgba(90,160,255,0.12)';
         ctx.fillRect(left, top, rw, rh);
+    }
+
+    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown) {
+        const hover = viewToImage(hoverClientX, hoverClientY);
+        if (hover && hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
+            const hit = hitTestStamp(stamps, hover.x, hover.y);
+            if (hit) {
+                ctx.beginPath();
+                ctx.arc(hit.x, hit.y, hit.size * 0.55, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 80, 80, 0.95)';
+                ctx.lineWidth = Math.max(1.5 / scale.value, 2 / scale.value);
+                ctx.setLineDash([4 / scale.value, 3 / scale.value]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                drawStampAt(ctx, stampKind.value, hover.x, hover.y, stampSize.value, 0.55);
+            }
+        }
     }
     ctx.restore();
 
@@ -748,7 +905,13 @@ function onPointerDown(event: PointerEvent): void {
         return;
     }
 
-    history.push(rgba);
+    if (tool.value === 'stamp') {
+        placeOrRemoveStamp(point.x, point.y);
+        dragging = false;
+        return;
+    }
+
+    pushEdit();
     strokeActive = true;
     lastBrushX = point.x;
     lastBrushY = point.y;
@@ -776,6 +939,11 @@ function onPointerMove(event: PointerEvent): void {
         const clamped = clampImagePoint(point);
         rectDrag.x1 = clamped.x;
         rectDrag.y1 = clamped.y;
+        paint();
+        return;
+    }
+
+    if (tool.value === 'stamp') {
         paint();
         return;
     }
@@ -825,7 +993,14 @@ function onPointerLeave(): void {
 }
 
 function doUndo(): void {
-    if (!history.undo(rgba)) return;
+    if (!history.canUndo) return;
+    stampFuture.push(cloneStamps(stamps));
+    stamps = stampPast.pop() ?? [];
+    if (!history.undo(rgba)) {
+        stampPast.push(stamps);
+        stamps = stampFuture.pop() ?? [];
+        return;
+    }
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -833,7 +1008,14 @@ function doUndo(): void {
 }
 
 function doRedo(): void {
-    if (!history.redo(rgba)) return;
+    if (!history.canRedo) return;
+    stampPast.push(cloneStamps(stamps));
+    stamps = stampFuture.pop() ?? [];
+    if (!history.redo(rgba)) {
+        stampFuture.push(stamps);
+        stamps = stampPast.pop() ?? [];
+        return;
+    }
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -842,12 +1024,13 @@ function doRedo(): void {
 
 function revertToOriginal(): void {
     confirmRevert.value = false;
-    if (buffersMatch(rgba, original)) {
+    if (buffersMatch(rgba, original) && stamps.length === 0) {
         syncHistoryFlags();
         return;
     }
-    history.push(rgba);
+    pushEdit();
     rgba.set(original);
+    stamps = [];
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -890,6 +1073,14 @@ function onKeyDown(event: KeyboardEvent): void {
     if (event.key === '[' || event.key === ']') {
         event.preventDefault();
         const step = event.shiftKey ? 5 : 1;
+        if (tool.value === 'stamp') {
+            const next = event.key === ']'
+                ? stampSize.value + step
+                : stampSize.value - step;
+            stampSize.value = Math.min(96, Math.max(16, next));
+            paint();
+            return;
+        }
         const next = event.key === ']'
             ? brushSize.value + step
             : brushSize.value - step;
@@ -918,6 +1109,7 @@ function onKeyUp(event: KeyboardEvent): void {
 }
 
 function emitApply(): void {
+    bakeStamps();
     writeWorking();
     const out = document.createElement('canvas');
     out.width = width;
@@ -938,7 +1130,7 @@ function antsLoop(now: number): void {
     paint();
 }
 
-watch([brushSize, tool], () => {
+watch([brushSize, stampSize, stampKind, tool], () => {
     paint();
 });
 
@@ -969,6 +1161,9 @@ onUnmounted(() => {
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
     history.clear();
+    stamps = [];
+    stampPast = [];
+    stampFuture = [];
 });
 </script>
 
@@ -1176,6 +1371,51 @@ onUnmounted(() => {
     padding: 14px 14px 18px;
     background: #22262e;
     border-left: 1px solid #0f1115;
+    overflow: auto;
+}
+
+.ie-stamp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.ie-stamp-grid-numbers {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.ie-stamp-swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 4px 6px;
+    border: 1px solid #3a414d;
+    border-radius: 8px;
+    background: #2c313a;
+    color: #c5cad3;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    cursor: pointer;
+}
+
+.ie-stamp-swatch:hover {
+    background: #363c48;
+    border-color: #525b6a;
+    color: #fff;
+}
+
+.ie-stamp-swatch.active {
+    background: rgba(61, 124, 240, 0.18);
+    border-color: rgba(91, 156, 255, 0.55);
+    color: #fff;
+}
+
+.ie-stamp-swatch-number {
+    padding: 6px 2px;
 }
 
 .ie-opt-label {
@@ -1238,6 +1478,10 @@ onUnmounted(() => {
 
 .cursor-eyedrop {
     cursor: copy;
+}
+
+.cursor-stamp {
+    cursor: cell;
 }
 
 .cursor-none {
