@@ -192,7 +192,7 @@
                         <button
                             type='button'
                             class='ie-btn ie-btn-icon'
-                            title='Deselect (Esc)'
+                            title='Deselect (Esc / Ctrl+D)'
                             @click='clearSelection'
                         >
                             <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -1236,6 +1236,13 @@ function onKeyDown(event: KeyboardEvent): void {
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) return;
     const key = event.key.toLowerCase();
+    if (key === 'd') {
+        if (hasSelection.value) {
+            event.preventDefault();
+            clearSelection();
+        }
+        return;
+    }
     if (key === 'z' && !event.shiftKey) {
         event.preventDefault();
         doUndo();
