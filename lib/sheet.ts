@@ -35,7 +35,8 @@ export interface SheetHost {
 let host: SheetHost | null = null;
 let quad: Quad | null = null;
 let source: Raster | null = null;
-let imageUrl: string | null = null;
+/** Canvas fed to a MapLibre canvas source (no URL fetch — CSP blocks data:/blob: connect-src). */
+let overlayCanvas: HTMLCanvasElement | null = null;
 let markers: Marker[] = [];
 let knob: Marker | null = null;
 let barOn = false;
@@ -46,11 +47,6 @@ let listening = false;
 function mapOrThrow(): MapLibreMap {
     if (!host) throw new Error('The map is not ready yet');
     return host.map;
-}
-
-function releaseImageUrl(): void {
-    if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl);
-    imageUrl = null;
 }
 
 function pointerToLngLat(event: PointerEvent): LngLat {
@@ -88,8 +84,10 @@ function knobLngLat(): LngLat | null {
 function sync(): void {
     if (!host || !quad) return;
     const current = quad;
-    const image = host.map.getSource(SOURCE_ID) as { type?: string; setCoordinates?: (coords: Quad) => void } | undefined;
-    if (image?.type === 'image' && image.setCoordinates) image.setCoordinates(current);
+    const overlay = host.map.getSource(SOURCE_ID) as { type?: string; setCoordinates?: (coords: Quad) => void } | undefined;
+    if ((overlay?.type === 'canvas' || overlay?.type === 'image') && overlay.setCoordinates) {
+        overlay.setCoordinates(current);
+    }
     markers.forEach((marker, index) => {
         marker.setLngLat(current[index]);
     });
@@ -277,13 +275,16 @@ function applyOpacity(value: number): void {
 }
 
 function attachRasterLayer(): void {
-    if (!host || !quad || !imageUrl) return;
+    if (!host || !quad || !overlayCanvas) return;
     const map = host.map;
     if (map.getLayer(LAYER_ID)) map.removeLayer(LAYER_ID);
     if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
+    // Canvas source reads pixels in-process. Image/data/blob URLs are blocked by
+    // CloudTAK's connect-src CSP when MapLibre tries to fetch them.
     map.addSource(SOURCE_ID, {
-        type: 'image',
-        url: imageUrl,
+        type: 'canvas',
+        canvas: overlayCanvas,
+        animate: false,
         coordinates: quad,
     });
     map.addLayer({
@@ -298,7 +299,7 @@ function attachRasterLayer(): void {
 }
 
 function onStyleLoad(): void {
-    if (!imageUrl || !quad || !source) return;
+    if (!overlayCanvas || !quad || !source) return;
     attachRasterLayer();
     ensureBar();
     sync();
@@ -321,8 +322,7 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
             source.height,
         );
     }
-    releaseImageUrl();
-    imageUrl = canvas.toDataURL('image/png');
+    overlayCanvas = canvas;
     attachRasterLayer();
     ensureMarkers();
     sync();
@@ -383,7 +383,7 @@ function clearMap(): void {
         if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
     }
     removeMarkers();
-    releaseImageUrl();
+    overlayCanvas = null;
     quad = null;
     source = null;
     sheetUi.hasSheet = false;
