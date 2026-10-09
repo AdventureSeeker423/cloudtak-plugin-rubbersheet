@@ -1,12 +1,12 @@
 import type { App } from 'vue';
 import { h } from 'vue';
 import type { PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
+import HeaderButtons from './lib/HeaderButtons.vue';
 import MenuTemplate from './lib/MenuTemplate.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
 import IconUrl from './lib/RubberSheet.svg';
 import { MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
-import { bind, clearSheet, detach } from './lib/sheet.ts';
-import { sheetUi } from './lib/ui-state.ts';
+import { bind, detach } from './lib/sheet.ts';
 
 const IconRubberSheet = {
     render: () => h('img', {
@@ -16,25 +16,6 @@ const IconRubberSheet = {
         alt: 'Rubber Sheet',
     }),
 };
-
-function CancelButton(api: PluginAPI) {
-    return h(
-        'button',
-        {
-            type: 'button',
-            class: 'btn btn-sm btn-outline-secondary',
-            title: 'Remove the sheet, or close Rubber Sheet if none is loaded',
-            onClick: () => {
-                if (sheetUi.hasSheet) {
-                    void clearSheet();
-                    return;
-                }
-                void api.router.push('/');
-            },
-        },
-        'Cancel',
-    );
-}
 
 export default class RubberSheet implements PluginInstance {
     api: PluginAPI;
@@ -50,7 +31,7 @@ export default class RubberSheet implements PluginInstance {
             component: {
                 render: () => h(MenuTemplate, { name: 'Rubber Sheet', back: false }, {
                     default: () => h(RubberSheetPane, { api: this.api }),
-                    buttons: () => CancelButton(this.api),
+                    buttons: () => h(HeaderButtons, { api: this.api }),
                 }),
             },
         }, 'home-menu');

@@ -311,7 +311,7 @@
                         >
                         <div class='ie-brush-value'>{{ stampSize }}px</div>
                         <p class='ie-hint'>
-                            Pick an icon, then click to place. Esc clears the pick. Click a placed icon to remove. [ ] size.
+                            Pick an icon, then click to place. Esc clears the pick. Click a placed icon to remove. [ ] size · Shift twice as fast.
                         </p>
                     </template>
                     <template v-else>
@@ -326,7 +326,7 @@
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
                         <p class='ie-hint'>
-                            Drag to erase. [ ] change size.
+                            Drag to erase. [ ] change size · Shift twice as fast.
                         </p>
                     </template>
                     <p class='ie-hint ie-hint-muted'>
@@ -1216,7 +1216,7 @@ function onKeyDown(event: KeyboardEvent): void {
 
     if (event.key === '[' || event.key === ']') {
         event.preventDefault();
-        const step = event.shiftKey ? 5 : 1;
+        const step = event.shiftKey ? 2 : 1;
         if (tool.value === 'stamp') {
             const next = event.key === ']'
                 ? stampSize.value + step

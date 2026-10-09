@@ -15,7 +15,8 @@
             Drag a corner to warp the sheet. Hold Shift to scale about the
             opposite corner, or Alt (or Shift+Alt) to scale from the center —
             press or release mid-drag to switch modes. Drag the rotate icon to
-            rotate, or drag the image to move it.
+            rotate, or drag the image to move it. Ctrl/Cmd+Z undoes a transform;
+            Ctrl+Y or Ctrl/Cmd+Shift+Z redoes.
             Use Edit Image for wand, eraser, and facility icon stamps.
         </p>
 

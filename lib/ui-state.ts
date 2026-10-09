@@ -20,4 +20,7 @@ export const sheetUi = reactive({
     error: '',
     status: '',
     missions: null as MissionChoice[] | null,
+    /** Map transform undo/redo (corners, move, rotate). */
+    canUndoTransform: false,
+    canRedoTransform: false,
 });

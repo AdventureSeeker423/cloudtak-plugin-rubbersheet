@@ -60,6 +60,11 @@ let cornerDrag: {
     lastCursor: LngLat;
 } | null = null;
 
+/** Undo/redo for map transforms (move, corner, scale, rotate). */
+const TRANSFORM_HISTORY_CAP = 40;
+let transformPast: Quad[] = [];
+let transformFuture: Quad[] = [];
+
 /** Diagonal resize cursors read as scale handles for each corner. */
 const SCALE_CURSOR: Record<CornerIndex, string> = {
     0: 'nwse-resize',
@@ -67,6 +72,58 @@ const SCALE_CURSOR: Record<CornerIndex, string> = {
     2: 'nwse-resize',
     3: 'nesw-resize',
 };
+
+function quadsEqual(a: Quad, b: Quad): boolean {
+    for (let i = 0; i < 4; i++) {
+        if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+    }
+    return true;
+}
+
+function syncTransformFlags(): void {
+    sheetUi.canUndoTransform = transformPast.length > 0 && !dragging;
+    sheetUi.canRedoTransform = transformFuture.length > 0 && !dragging;
+}
+
+function clearTransformHistory(): void {
+    transformPast = [];
+    transformFuture = [];
+    syncTransformFlags();
+}
+
+function pushTransformHistory(): void {
+    if (!quad) return;
+    transformPast.push(cloneQuad(quad));
+    if (transformPast.length > TRANSFORM_HISTORY_CAP) transformPast.shift();
+    transformFuture = [];
+    syncTransformFlags();
+}
+
+/** Drop the pre-gesture snapshot when the drag did not change the quad. */
+function discardTransformPushIfUnchanged(origin: Quad): void {
+    if (!quad || !transformPast.length) return;
+    if (quadsEqual(quad, origin)) transformPast.pop();
+    syncTransformFlags();
+}
+
+export function undoSheetTransform(): boolean {
+    if (!quad || dragging || !transformPast.length) return false;
+    transformFuture.push(cloneQuad(quad));
+    quad = transformPast.pop()!;
+    sync();
+    syncTransformFlags();
+    return true;
+}
+
+export function redoSheetTransform(): boolean {
+    if (!quad || dragging || !transformFuture.length) return false;
+    transformPast.push(cloneQuad(quad));
+    if (transformPast.length > TRANSFORM_HISTORY_CAP) transformPast.shift();
+    quad = transformFuture.pop()!;
+    sync();
+    syncTransformFlags();
+    return true;
+}
 
 function mapOrThrow(): MapLibreMap {
     if (!host) throw new Error('The map is not ready yet');
@@ -130,11 +187,13 @@ function endPan(): void {
     cornerDrag = null;
     if (restorePan) host.map.dragPan.enable();
     restorePan = false;
+    syncTransformFlags();
 }
 
 function beginPanLock(): void {
     if (!host) return;
     dragging = true;
+    syncTransformFlags();
     restorePan = host.map.dragPan.isEnabled();
     if (restorePan) host.map.dragPan.disable();
 }
@@ -149,6 +208,7 @@ function swallowClick(): void {
 function beginMove(start: LngLat): void {
     if (!host || !quad) return;
     const origin = cloneQuad(quad);
+    pushTransformHistory();
     beginPanLock();
     const map = host.map;
     const move = (event: { lngLat: { lng: number; lat: number } }) => {
@@ -160,6 +220,7 @@ function beginMove(start: LngLat): void {
         map.off('touchmove', move);
         map.off('mouseup', up);
         map.off('touchend', up);
+        discardTransformPushIfUnchanged(origin);
         endPan();
         swallowClick();
     };
@@ -192,7 +253,11 @@ function onTouchStart(event: MapTouchEvent): void {
     beginMove(point);
 }
 
-function trackPointer(event: PointerEvent, onMove: (ev: PointerEvent) => void): void {
+function trackPointer(
+    event: PointerEvent,
+    onMove: (ev: PointerEvent) => void,
+    onEnd?: () => void,
+): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
     event.preventDefault();
@@ -203,6 +268,7 @@ function trackPointer(event: PointerEvent, onMove: (ev: PointerEvent) => void): 
         target.removeEventListener('pointermove', onMove);
         target.removeEventListener('pointerup', end);
         target.removeEventListener('pointercancel', end);
+        onEnd?.();
         endPan();
         swallowClick();
     };
@@ -266,10 +332,30 @@ function onWindowBlur(): void {
     refreshCornerCursors();
 }
 
+function onSheetKeyDown(event: KeyboardEvent): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+        return;
+    }
+    // Image editor owns Ctrl+Z while open.
+    if (document.body.classList.contains('rubber-ie-open')) return;
+    if (!sheetUi.hasSheet || !quad) return;
+
+    const mod = event.ctrlKey || event.metaKey;
+    if (!mod) return;
+    const key = event.key.toLowerCase();
+    if (key === 'z' && !event.shiftKey) {
+        if (undoSheetTransform()) event.preventDefault();
+    } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        if (redoSheetTransform()) event.preventDefault();
+    }
+}
+
 function listenModifiers(): void {
     if (modListening) return;
     window.addEventListener('keydown', onModifierKey);
     window.addEventListener('keyup', onModifierKey);
+    window.addEventListener('keydown', onSheetKeyDown);
     window.addEventListener('blur', onWindowBlur);
     modListening = true;
 }
@@ -278,6 +364,7 @@ function unlistenModifiers(): void {
     if (!modListening) return;
     window.removeEventListener('keydown', onModifierKey);
     window.removeEventListener('keyup', onModifierKey);
+    window.removeEventListener('keydown', onSheetKeyDown);
     window.removeEventListener('blur', onWindowBlur);
     modListening = false;
     shiftHeld = false;
@@ -289,6 +376,7 @@ function startCorner(event: PointerEvent, index: CornerIndex): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
     const origin = cloneQuad(quad);
+    pushTransformHistory();
     const startCursor = pointerToLngLat(event);
     cornerDrag = { index, origin, target, lastCursor: startCursor };
     const mode = cornerDragMode(event);
@@ -300,18 +388,23 @@ function startCorner(event: PointerEvent, index: CornerIndex): void {
         target.style.cursor = nextMode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
         quad = applyCornerDrag(nextMode, cornerDrag.origin, index, cornerDrag.lastCursor);
         sync();
+    }, () => {
+        discardTransformPushIfUnchanged(origin);
     });
 }
 
 function startRotate(event: PointerEvent): void {
     if (!quad) return;
     const origin = cloneQuad(quad);
+    pushTransformHistory();
     const center = centroid(origin);
     const startAngle = screenAngle(center, pointerToLngLat(event));
     trackPointer(event, (ev) => {
         const delta = screenAngle(center, pointerToLngLat(ev)) - startAngle;
         quad = rotateAroundCenter(origin, -delta);
         sync();
+    }, () => {
+        discardTransformPushIfUnchanged(origin);
     });
 }
 
@@ -453,6 +546,7 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
     // New file / PDF page — reset pristine original and edit history.
     pristineRgba = source.rgba.slice();
     savedEditHistory = null;
+    clearTransformHistory();
     const bounds = map.getBounds();
     const center = map.getCenter();
     if (resetQuad || !quad) {
@@ -588,6 +682,7 @@ function clearMap(): void {
     overlayCanvas = null;
     pristineRgba = null;
     savedEditHistory = null;
+    clearTransformHistory();
     quad = null;
     source = null;
     sheetUi.hasSheet = false;
