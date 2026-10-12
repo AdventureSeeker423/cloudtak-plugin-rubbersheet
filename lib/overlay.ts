@@ -171,7 +171,7 @@ async function waitForTileJson(assetId: string): Promise<{ type: 'raster' | 'vec
             const body = await response.json() as { tiles?: string[] };
             const tile = body.tiles?.[0];
             if (!tile) throw new Error('Malformed PMTiles metadata response');
-            let type: 'raster' | 'vector' = 'raster';
+            let type: 'raster' | 'vector';
             try {
                 type = new URL(tile, window.location.origin).pathname.endsWith('.mvt') ? 'vector' : 'raster';
             } catch {

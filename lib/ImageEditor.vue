@@ -450,19 +450,21 @@ let height = props.source.height;
 let rgba = new Uint8Array(width * height * 4);
 let selectionMask = new Uint8Array(width * height);
 let selectionScratch = new Uint8Array(width * height);
-const history = new EditHistory();
+const editHistory = new EditHistory();
 
 const working = document.createElement('canvas');
 working.width = width;
 working.height = height;
-let workingCtx = working.getContext('2d', { willReadFrequently: true });
-if (!workingCtx) throw new Error('Could not create edit canvas');
+const firstWorkingCtx = working.getContext('2d', { willReadFrequently: true });
+if (!firstWorkingCtx) throw new Error('Could not create edit canvas');
+let workingCtx: CanvasRenderingContext2D = firstWorkingCtx;
 
 const tintCanvas = document.createElement('canvas');
 tintCanvas.width = width;
 tintCanvas.height = height;
-let tintCtx = tintCanvas.getContext('2d');
-if (!tintCtx) throw new Error('Could not create selection overlay');
+const firstTintCtx = tintCanvas.getContext('2d');
+if (!firstTintCtx) throw new Error('Could not create selection overlay');
+let tintCtx: CanvasRenderingContext2D = firstTintCtx;
 
 const sourceCtx = props.source.getContext('2d', { willReadFrequently: true });
 if (!sourceCtx) throw new Error('Could not read the sheet image');
@@ -473,15 +475,15 @@ workingCtx.putImageData(initial, 0, 0);
 let original = props.pristine && props.pristine.length === rgba.length
     ? new Uint8Array(props.pristine)
     : new Uint8Array(initial.data);
-if (props.history) history.importSnapshot(props.history);
+if (props.history) editHistory.importSnapshot(props.history);
 
 /** Stamps placed this session — parallel undo stacks stay aligned with EditHistory. */
 let stamps: PlacedStamp[] = [];
 let stampPast: PlacedStamp[][] = props.history
-    ? Array.from({ length: history.undoCount }, () => [])
+    ? Array.from({ length: editHistory.undoCount }, () => [])
     : [];
 let stampFuture: PlacedStamp[][] = props.history
-    ? Array.from({ length: history.redoCount }, () => [])
+    ? Array.from({ length: editHistory.redoCount }, () => [])
     : [];
 let nextStampId = 1;
 
@@ -536,14 +538,14 @@ const bodyStyle = computed(() => ({
 }));
 
 function syncHistoryFlags(): void {
-    canUndo.value = history.canUndo;
-    canRedo.value = history.canRedo;
+    canUndo.value = editHistory.canUndo;
+    canRedo.value = editHistory.canRedo;
     canRevert.value = !buffersMatch(rgba, original) || stamps.length > 0;
 }
 
 /** Snapshot pixels + stamp list before a mutating edit. */
 function pushEdit(): void {
-    history.push(rgba);
+    editHistory.push(rgba);
     stampPast.push(cloneStamps(stamps));
     if (stampPast.length > EDIT_HISTORY_CAP) stampPast.shift();
     stampFuture = [];
@@ -638,7 +640,7 @@ function padRgbaBuffer(
     padTop: number,
     newW: number,
     newH: number,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
     const out = new Uint8Array(newW * newH * 4);
     for (let y = 0; y < srcH; y++) {
         const dy = y + padTop;
@@ -664,7 +666,7 @@ function padMask(
     padTop: number,
     newW: number,
     newH: number,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
     const out = new Uint8Array(newW * newH);
     for (let y = 0; y < srcH; y++) {
         const dy = y + padTop;
@@ -723,7 +725,7 @@ function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: 
     original = padRgbaBuffer(original, oldW, oldH, padLeft, padTop, newW, newH);
     selectionMask = padMask(selectionMask, oldW, oldH, padLeft, padTop, newW, newH);
     selectionScratch = new Uint8Array(newW * newH);
-    history.mapFrames((frame) => {
+    editHistory.mapFrames((frame) => {
         if (frame.length !== oldW * oldH * 4) return frame;
         return padRgbaBuffer(frame, oldW, oldH, padLeft, padTop, newW, newH);
     });
@@ -1131,10 +1133,10 @@ function onPointerLeave(): void {
 }
 
 function doUndo(): void {
-    if (!history.canUndo) return;
+    if (!editHistory.canUndo) return;
     stampFuture.push(cloneStamps(stamps));
     stamps = stampPast.pop() ?? [];
-    if (!history.undo(rgba)) {
+    if (!editHistory.undo(rgba)) {
         stampPast.push(stamps);
         stamps = stampFuture.pop() ?? [];
         return;
@@ -1146,10 +1148,10 @@ function doUndo(): void {
 }
 
 function doRedo(): void {
-    if (!history.canRedo) return;
+    if (!editHistory.canRedo) return;
     stampPast.push(cloneStamps(stamps));
     stamps = stampFuture.pop() ?? [];
-    if (!history.redo(rgba)) {
+    if (!editHistory.redo(rgba)) {
         stampFuture.push(stamps);
         stamps = stampPast.pop() ?? [];
         return;
@@ -1268,7 +1270,7 @@ function emitApply(): void {
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(working, 0, 0);
-    emit('apply', out, history.exportSnapshot());
+    emit('apply', out, editHistory.exportSnapshot());
 }
 
 function antsLoop(now: number): void {
@@ -1311,7 +1313,7 @@ onUnmounted(() => {
     window.removeEventListener('keyup', onKeyUp);
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
-    history.clear();
+    editHistory.clear();
     stamps = [];
     stampPast = [];
     stampFuture = [];

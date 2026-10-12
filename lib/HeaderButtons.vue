@@ -73,6 +73,7 @@ function onCancel(): void {
         void clearSheet();
         return;
     }
-    void props.api.router.push('/');
+    const { router } = props.api;
+    void router.push('/');
 }
 </script>

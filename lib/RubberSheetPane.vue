@@ -317,7 +317,8 @@ function keepEditing(): void {
 async function exitRubberSheet(): Promise<void> {
     donePrompt.value = null;
     await clearSheet();
-    void props.api.router.push('/');
+    const { router } = props.api;
+    void router.push('/');
 }
 
 async function onDownload(): Promise<void> {
