@@ -18,6 +18,16 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 * Imagery is JPEG quality 85. A picture that already has transparent pixels stays PNG inside the KMZ. GeoTIFF and GeoPDF are a north-up copy of the fitted sheet, at most 4096 px on the long side, so they match what you see even though those formats cannot store a four-corner warp. The KMZ keeps the exact corners with a KML `gx:LatLonQuad`.
 * The menu icon is traced from an ATAK-CIV icon (GPL-3.0). See [NOTICE](NOTICE).
 
+## Screenshots
+
+The Rubber Sheet panel with a PDF floor plan placed on the map. The sheet is warped by dragging its corners, and the opacity slider sits at the bottom of the map.
+
+![Rubber Sheet panel with a floor plan placed on the map](docs/screenshots/rubbersheet.png)
+
+Edit Image opens the fullscreen pixel editor, with the wand, rectangle marquee, eraser, selective colour and facility icon tools.
+
+![Edit Image pixel editor](docs/screenshots/rubbersheet-edit.png)
+
 ## Install
 
 The plugin is compiled into the CloudTAK web bundle when the CloudTAK image is built. Nothing is installed at runtime.
