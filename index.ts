@@ -2,7 +2,8 @@ import type { App } from 'vue';
 import { h } from 'vue';
 import type { PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
 import HeaderButtons from './lib/HeaderButtons.vue';
-import MenuTemplate from './lib/MenuTemplate.vue';
+// Host component (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
+import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
 import { IconRubberSheet } from './lib/icon.ts';
 import { MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
