@@ -1261,6 +1261,16 @@ function onKeyUp(event: KeyboardEvent): void {
     }
 }
 
+/**
+ * Keep Escape inside the editor. The host Map.vue listens for Escape on window
+ * keyup and can navigate to '/', which would unmount the editor and drop unsaved
+ * edits. Today that branch is unreachable, but a host fix would expose it.
+ * The editor itself handles Escape on keydown, so only keyup is stopped here.
+ */
+function onEscapeKeyUpCapture(event: KeyboardEvent): void {
+    if (event.key === 'Escape') event.stopPropagation();
+}
+
 function emitApply(): void {
     bakeStamps();
     writeWorking();
@@ -1297,6 +1307,7 @@ onMounted(() => {
     document.body.classList.add('rubber-ie-open');
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keyup', onEscapeKeyUpCapture, true);
     syncHistoryFlags();
     fitView();
     if (viewport.value) {
@@ -1311,6 +1322,7 @@ onUnmounted(() => {
     document.body.classList.remove('rubber-ie-open');
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('keyup', onEscapeKeyUpCapture, true);
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
     editHistory.clear();
