@@ -224,14 +224,58 @@
                             v-model.number='fuzziness'
                             title='How far from the clicked color still counts as a match'
                         >
+                        <div class='ie-opt-label'>
+                            Selection
+                        </div>
+                        <div
+                            class='ie-seg'
+                            role='group'
+                            aria-label='Selection mode'
+                        >
+                            <button
+                                v-for='option in selectionModeOptions'
+                                :key='option.value'
+                                type='button'
+                                class='ie-seg-btn'
+                                :class='{ active: selectionMode === option.value }'
+                                :aria-pressed='selectionMode === option.value'
+                                @click='selectionMode = option.value'
+                            >
+                                {{ option.label }}
+                            </button>
+                        </div>
                         <p class='ie-hint'>
-                            Click to select. Shift add · Ctrl subtract. Then Delete.
+                            Click to select.
+                            <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
+                            Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "rect"'>
                         <div class='ie-opt-label'>Rectangle</div>
+                        <div class='ie-opt-label'>
+                            Selection
+                        </div>
+                        <div
+                            class='ie-seg'
+                            role='group'
+                            aria-label='Selection mode'
+                        >
+                            <button
+                                v-for='option in selectionModeOptions'
+                                :key='option.value'
+                                type='button'
+                                class='ie-seg-btn'
+                                :class='{ active: selectionMode === option.value }'
+                                :aria-pressed='selectionMode === option.value'
+                                @click='selectionMode = option.value'
+                            >
+                                {{ option.label }}
+                            </button>
+                        </div>
                         <p class='ie-hint'>
-                            Drag to select. Shift add · Ctrl subtract. Then Delete.
+                            Drag to select.
+                            <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
+                            Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "color"'>
@@ -423,6 +467,13 @@ type Tool = 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
 
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
+/** Used by wand and marquee unless Shift (add) or Ctrl/Cmd (subtract) is held. */
+const selectionMode = ref<FloodSelectMode>('replace');
+const selectionModeOptions: { value: FloodSelectMode; label: string }[] = [
+    { value: 'replace', label: 'Replace' },
+    { value: 'add', label: 'Add' },
+    { value: 'subtract', label: 'Subtract' },
+];
 const brushSize = ref(12);
 const stampKind = ref<StampKind | null>(null);
 const stampSize = ref(40);
@@ -946,7 +997,7 @@ function onWheel(event: WheelEvent): void {
 function selectModeFromEvent(event: PointerEvent): FloodSelectMode {
     if (event.ctrlKey || event.metaKey) return 'subtract';
     if (event.shiftKey) return 'add';
-    return 'replace';
+    return selectionMode.value;
 }
 
 function clampImagePoint(point: { x: number; y: number }): { x: number; y: number } {
@@ -1621,6 +1672,38 @@ onUnmounted(() => {
     margin-bottom: 8px;
 }
 
+.ie-seg {
+    display: flex;
+    margin-bottom: 12px;
+    border: 1px solid #3a414d;
+    border-radius: 999px;
+    overflow: hidden;
+}
+.ie-seg-btn {
+    appearance: none;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 4px;
+    border: 0;
+    border-left: 1px solid #3a414d;
+    background: #2c313a;
+    color: #c5cad3;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.ie-seg-btn:first-child {
+    border-left: 0;
+}
+.ie-seg-btn:hover {
+    background: #363c48;
+    color: #fff;
+}
+.ie-seg-btn.active {
+    background: rgba(61, 124, 240, 0.28);
+    color: #fff;
+}
 .ie-hint {
     font-size: 11px;
     line-height: 1.4;
@@ -1729,6 +1812,12 @@ onUnmounted(() => {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+@media (pointer: coarse) {
+    /* Shift / Ctrl wording means nothing without a keyboard. */
+    .ie-kbd-hint {
+        display: none;
+    }
 }
 </style>
 
