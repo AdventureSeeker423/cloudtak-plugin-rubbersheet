@@ -2,7 +2,7 @@
 
 CloudTAK plugin that stretches an image or PDF over the map, the way ATAK rubber-sheets a floor plan onto a building.
 
-Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](https://github.com/mozilla/pdf.js) (Apache-2.0). The installer adds that library to the CloudTAK app so the web build can bundle it. Do not rely on `WEB_PLUGINS` alone: that clone does not install PDF.js.
+Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](https://github.com/mozilla/pdf.js) (Apache-2.0). The CloudTAK app must have `pdfjs-dist` **4.10.38** as a dependency so the web build can bundle it. `WEB_PLUGINS` only clones the plugin and does not install dependencies, so add `pdfjs-dist` to the app first (see Install).
 
 ## What it does
 
@@ -19,28 +19,68 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 
 ## Install
 
-```bash
-git clone https://github.com/AdventureSeeker423/cloudtak-plugin-rubbersheet.git
-cd cloudtak-plugin-rubbersheet
-./install.sh
-```
+The plugin is compiled into the CloudTAK web bundle when the CloudTAK image is built. Nothing is installed at runtime.
 
-Or pass the CloudTAK path:
+### TAK-NZ CloudTAK
 
-```bash
-./install.sh /path/to/CloudTAK
-```
+1. `app/package.json` in [TAK-NZ/CloudTAK](https://github.com/TAK-NZ/CloudTAK) must list `"pdfjs-dist": "4.10.38"` (exact version) and `app/package-lock.json` must match. The Docker build runs `npm ci` before plugins are cloned, so the plugin cannot add it itself.
+2. The plugin URL is set per environment in `cdk/cdk.json` as `context.<env>.cloudtak.webPlugins`:
+   ```json
+   "webPlugins": "https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git"
+   ```
+   `dev-test` installs it. `prod` is empty until it is enabled there. Several plugins can be listed, separated by commas or spaces.
+3. Deploy:
+   * **Test stack, manual deploy.** Run the normal deploy command from `cdk/`; the value comes from `cdk.json`:
+     ```bash
+     npm run build && npm run cdk deploy -- \
+       --context envType=dev-test \
+       --context stackName=Demo \
+       --context tak-project="TAK on AWS" \
+       --context tak-component="CloudTAK" \
+       --context tak-region=us-west-2 \
+       --context useS3CloudTAKConfigFile=true \
+       --require-approval never
+     ```
+     Add `--context WebPlugins="<urls>"` to override the list for one deploy (`""` for none). The `WEB_PLUGINS` environment variable works too.
+   * **Demo, GitHub CI/CD.** The Demo build reads the `dev-test` value from `cdk/cdk.json`, passes it to the Docker build, and the deploy workflow uses that image. Production uses the `prod` value.
+4. Users: **Settings → Refresh App**. A normal browser refresh is not enough because the service worker caches the old app.
 
-The script finds CloudTAK at `$CLOUDTAK`, `~/CloudTAK`, `/home/takwerx/CloudTAK`, or `/home/*/CloudTAK`. Before copying, it fetches the latest `main` from GitHub. If you run it from a marketplace copy (no plugin `.git`), it clones GitHub into a temp dir so the install is not stuck on stale files. Then it copies into `app/plugins/rubber-sheet/`, adds `pdfjs-dist` to the CloudTAK app if it is missing, and rebuilds the API image.
+The clone takes the default branch (`main`) of this repository with `--depth 1`. A change to this plugin alone does not change the image hash, so it is not picked up by itself: re-run the CI build with `force_rebuild`, or change any file under `api/` or `app/` before a manual CDK deploy.
 
-After it finishes: **Settings → Refresh App**. A normal browser refresh is not enough.
+The image build runs `npm run lint && npm run check` over `app/plugins/`, so the plugin has to pass the CloudTAK app's lint and type checks. Run them locally before pushing a change here (see Local development).
 
-```bash
-./install.sh --remove
-```
+### Any other CloudTAK build (Docker)
+
+1. Add PDF.js to the CloudTAK app and commit `package.json` and the lock file:
+   ```bash
+   cd app
+   npm install --save-exact pdfjs-dist@4.10.38
+   ```
+2. Build the image with the plugin URL as a build argument:
+   ```bash
+   docker build -f Dockerfile \
+     --build-arg WEB_PLUGINS="https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git" \
+     -t cloudtak .
+   ```
+   With docker compose: `docker compose build --build-arg WEB_PLUGINS="https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git" api`
+3. Restart the container, then **Settings → Refresh App**.
+
+To remove the plugin, take the URL out of `webPlugins` / `WEB_PLUGINS` and rebuild.
 
 ### Local development
 
-Symlink this checkout to `CloudTAK/app/plugins/rubber-sheet`. From the CloudTAK `app` directory, install PDF.js if it is not already there (`npm install pdfjs-dist@4.10.38 --save`), then restart `npm run serve`.
+Clone the plugin directly into the CloudTAK app. `app/plugins/` is ignored by the CloudTAK repository, so this checkout does not affect it:
 
-`@tak-ps/cloudtak` in this repo's `package.json` points at `../../../CloudTAK/app` for types. Change that path if your CloudTAK checkout lives somewhere else.
+```bash
+git clone https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git /path/to/CloudTAK/app/plugins/cloudtak-plugin-rubbersheet
+cd /path/to/CloudTAK/app
+npm ci
+```
+
+Then start the CloudTAK web dev server from `app/` as usual (`npm run serve`) and restart it after adding the plugin.
+
+Do not use a symlink. `lib/overlay.ts` imports `../../../src/base/overlay.ts` from the CloudTAK app, so the plugin has to live physically in `app/plugins/<name>/`. Before pushing a change, run `npm run lint` and then `npm run check` from `app/`.
+
+### `install.sh`
+
+`install.sh` is the original installer for a docker-compose based CloudTAK checkout. It copies the plugin into `app/plugins/rubber-sheet/`, adds `pdfjs-dist` to `app/package.json`, and rebuilds the API image with `docker compose`. It is not used for the TAK-NZ deployment.
