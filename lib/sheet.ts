@@ -174,11 +174,13 @@ function sync(): void {
     });
     const knobAt = knobLngLat();
     if (knob && knobAt) knob.setLngLat(knobAt);
+    applyHandleSizes();
 }
 
 function onMapMove(): void {
     const knobAt = knobLngLat();
     if (knob && knobAt) knob.setLngLat(knobAt);
+    applyHandleSizes();
 }
 
 function endPan(): void {
@@ -408,36 +410,95 @@ function startRotate(event: PointerEvent): void {
     });
 }
 
-function handleElement(title: string, fill: string): HTMLDivElement {
+/** Minimum touch target edge for the transparent hit area around each handle. */
+const HANDLE_HIT_PX = 44;
+/** Visible dot edge (border included) on fine and coarse pointers. */
+const CORNER_DOT_FINE_PX = 20;
+const CORNER_DOT_COARSE_PX = 24;
+const KNOB_DOT_FINE_PX = 32;
+const KNOB_DOT_COARSE_PX = 36;
+
+function isCoarsePointer(): boolean {
+    return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+/**
+ * The marker element is a transparent hit box (44 px) that owns the pointer
+ * handlers and cursor; the visible dot is a non-interactive child.
+ */
+function hitBoxElement(title: string): HTMLDivElement {
     const element = document.createElement('div');
     element.title = title;
-    element.style.width = '16px';
-    element.style.height = '16px';
-    element.style.borderRadius = '50%';
-    element.style.background = fill;
-    element.style.border = '2px solid #111111';
-    element.style.boxShadow = '0 0 0 1px #ffffff';
+    element.style.display = 'flex';
+    element.style.alignItems = 'center';
+    element.style.justifyContent = 'center';
+    element.style.width = `${HANDLE_HIT_PX}px`;
+    element.style.height = `${HANDLE_HIT_PX}px`;
     element.style.cursor = 'grab';
     element.style.touchAction = 'none';
     return element;
 }
 
-function rotateHandleElement(): HTMLDivElement {
-    const element = document.createElement('div');
-    element.title = 'Drag to rotate';
-    element.style.width = '28px';
-    element.style.height = '28px';
-    element.style.display = 'flex';
-    element.style.alignItems = 'center';
-    element.style.justifyContent = 'center';
-    element.style.borderRadius = '50%';
-    element.style.background = '#206bc4';
-    element.style.border = '2px solid #ffffff';
-    element.style.boxShadow = '0 0 0 1px #111111';
-    element.style.cursor = 'grab';
-    element.style.touchAction = 'none';
-    element.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>`;
+function handleElement(title: string, fill: string): HTMLDivElement {
+    const element = hitBoxElement(title);
+    const dot = document.createElement('div');
+    dot.style.boxSizing = 'border-box';
+    dot.style.borderRadius = '50%';
+    dot.style.background = fill;
+    dot.style.border = '2px solid #111111';
+    dot.style.boxShadow = '0 0 0 1px #ffffff';
+    dot.style.pointerEvents = 'none';
+    element.appendChild(dot);
     return element;
+}
+
+function rotateHandleElement(): HTMLDivElement {
+    const element = hitBoxElement('Drag to rotate');
+    const dot = document.createElement('div');
+    dot.style.boxSizing = 'border-box';
+    dot.style.display = 'flex';
+    dot.style.alignItems = 'center';
+    dot.style.justifyContent = 'center';
+    dot.style.borderRadius = '50%';
+    dot.style.background = '#206bc4';
+    dot.style.border = '2px solid #ffffff';
+    dot.style.boxShadow = '0 0 0 1px #111111';
+    dot.style.pointerEvents = 'none';
+    dot.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>`;
+    element.appendChild(dot);
+    return element;
+}
+
+/**
+ * Size the dots for the pointer type and shrink the hit boxes on small sheets
+ * so neighbouring boxes never overlap (the dots stay the same size).
+ */
+function applyHandleSizes(): void {
+    if (!host || !markers.length) return;
+    const map = host.map;
+    const coarse = isCoarsePointer();
+    const cornerDot = coarse ? CORNER_DOT_COARSE_PX : CORNER_DOT_FINE_PX;
+    const knobDot = coarse ? KNOB_DOT_COARSE_PX : KNOB_DOT_FINE_PX;
+    const points = markers.map((marker) => map.project(marker.getLngLat()));
+    if (knob) points.push(map.project(knob.getLngLat()));
+    let nearest = Infinity;
+    for (let i = 0; i < points.length; i++) {
+        for (let j = i + 1; j < points.length; j++) {
+            nearest = Math.min(nearest, Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y));
+        }
+    }
+    const hit = Math.round(Math.min(HANDLE_HIT_PX, Math.max(cornerDot, nearest)));
+    const apply = (element: HTMLElement, box: number, dotSize: number) => {
+        element.style.width = `${box}px`;
+        element.style.height = `${box}px`;
+        const dot = element.firstElementChild;
+        if (dot instanceof HTMLElement) {
+            dot.style.width = `${dotSize}px`;
+            dot.style.height = `${dotSize}px`;
+        }
+    };
+    for (const marker of markers) apply(marker.getElement(), hit, cornerDot);
+    if (knob) apply(knob.getElement(), Math.max(hit, knobDot), knobDot);
 }
 
 function ensureMarkers(): void {
@@ -468,6 +529,7 @@ function ensureMarkers(): void {
     knobElement.addEventListener('pointerdown', startRotate);
     const knobAt = knobLngLat() ?? current[0];
     knob = new Marker({ element: knobElement, anchor: 'center' }).setLngLat(knobAt).addTo(mapHost.map);
+    applyHandleSizes();
     listenModifiers();
 }
 
