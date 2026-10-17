@@ -98,3 +98,34 @@ test('mapFrames rewrites past and future snapshots', () => {
     assert.equal(history.redo(pixels), true);
     assert.equal(pixels[0], 9);
 });
+test('rollback restores the pre-edit buffer without creating redo', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    assert.equal(history.rollback(pixels), true);
+    assert.deepEqual(pixels, buf(1));
+    assert.equal(history.canRedo, false);
+    assert.equal(history.canUndo, false);
+});
+test('rollback only drops the newest snapshot', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.push(pixels);
+    pixels.fill(3);
+    assert.equal(history.rollback(pixels), true);
+    assert.deepEqual(pixels, buf(2));
+    assert.equal(history.canUndo, true);
+    assert.equal(history.undoCount, 1);
+});
+test('rollback with nothing to roll back or a size mismatch changes nothing', () => {
+    const history = new EditHistory();
+    const pixels = buf(5);
+    assert.equal(history.rollback(pixels), false);
+    history.push(pixels);
+    assert.equal(history.rollback(buf(0, 4)), false);
+    assert.equal(history.undoCount, 1);
+    assert.deepEqual(pixels, buf(5));
+});

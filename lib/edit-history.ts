@@ -77,6 +77,17 @@ export class EditHistory {
         return true;
     }
 
+    /**
+     * Drop the newest undo snapshot and restore it into `target`.
+     * Unlike undo(), nothing is pushed onto redo: the edit never happened.
+     */
+    rollback(target: Uint8Array): boolean {
+        if (!this.past.length || target.length !== this.past[this.past.length - 1].length) {
+            return false;
+        }
+        target.set(this.past.pop()!);
+        return true;
+    }
     redo(target: Uint8Array): boolean {
         if (!this.future.length || target.length !== this.future[this.future.length - 1].length) {
             return false;
