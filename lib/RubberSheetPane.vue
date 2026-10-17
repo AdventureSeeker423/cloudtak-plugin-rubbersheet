@@ -406,6 +406,15 @@ function onFormat(event: Event): void {
 </script>
 
 <style scoped>
+@media (pointer: coarse) {
+    :deep(.btn-group .btn) {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
 .rubber-done-backdrop {
     position: fixed;
     inset: 0;

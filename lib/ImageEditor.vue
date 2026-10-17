@@ -354,8 +354,20 @@
                             v-model.number='stampSize'
                         >
                         <div class='ie-brush-value'>{{ stampSize }}px</div>
+                        <button
+                            v-if='stampKind'
+                            type='button'
+                            class='ie-btn ie-clear-pick'
+                            title='Stop placing icons (Esc)'
+                            @click='clearStampPick'
+                        >
+                            Clear pick
+                        </button>
                         <p class='ie-hint'>
-                            Pick an icon, then click to place. Esc clears the pick. Click a placed icon to remove. [ ] size · Shift twice as fast.
+                            Pick an icon, then click to place.
+                            <span class='ie-kbd-hint'>Esc clears the pick.</span>
+                            Click a placed icon to remove.
+                            <span class='ie-kbd-hint'>[ ] size · Shift twice as fast.</span>
                         </p>
                     </template>
                     <template v-else>
@@ -370,10 +382,11 @@
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
                         <p class='ie-hint'>
-                            Drag to erase. [ ] change size · Shift twice as fast.
+                            Drag to erase.
+                            <span class='ie-kbd-hint'>[ ] change size · Shift twice as fast.</span>
                         </p>
                     </template>
-                    <p class='ie-hint ie-hint-muted'>
+                    <p class='ie-hint ie-hint-muted ie-kbd-hint'>
                         Space-drag to pan · Wheel to zoom
                     </p>
                 </aside>
@@ -994,6 +1007,10 @@ function onWheel(event: WheelEvent): void {
     paint();
 }
 
+function clearStampPick(): void {
+    stampKind.value = null;
+    paint();
+}
 function selectModeFromEvent(event: PointerEvent): FloodSelectMode {
     if (event.ctrlKey || event.metaKey) return 'subtract';
     if (event.shiftKey) return 'add';
@@ -1387,6 +1404,11 @@ onUnmounted(() => {
 .ie-root {
     position: fixed;
     inset: 0;
+    /* Dynamic viewport height tracks the mobile URL bar; older browsers keep inset: 0. */
+    height: 100dvh;
+    box-sizing: border-box;
+    /* Top inset is handled by .ie-topbar so its background reaches the screen edge. */
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     z-index: 10050;
     display: flex;
     flex-direction: column;
@@ -1401,8 +1423,9 @@ onUnmounted(() => {
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 12px;
+    box-sizing: content-box;
     height: 48px;
-    padding: 0 14px;
+    padding: env(safe-area-inset-top, 0px) 14px 0;
     background: linear-gradient(180deg, #2a2f38 0%, #22262e 100%);
     border-bottom: 1px solid #0f1115;
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -1711,6 +1734,10 @@ onUnmounted(() => {
     margin: 0 0 10px;
 }
 
+.ie-clear-pick {
+    width: 100%;
+    margin-bottom: 10px;
+}
 .ie-hint-muted {
     color: #7d8696;
     margin-top: 18px;
@@ -1814,9 +1841,13 @@ onUnmounted(() => {
     gap: 8px;
 }
 @media (pointer: coarse) {
-    /* Shift / Ctrl wording means nothing without a keyboard. */
+    /* Shift / Ctrl / bracket / Space / wheel wording means nothing without a keyboard. */
     .ie-kbd-hint {
         display: none;
+    }
+    .ie-btn,
+    .ie-seg-btn {
+        min-height: 44px;
     }
 }
 </style>

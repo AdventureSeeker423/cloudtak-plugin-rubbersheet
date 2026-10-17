@@ -77,3 +77,11 @@ function onCancel(): void {
     void router.push('/');
 }
 </script>
+
+<style scoped>
+@media (pointer: coarse) {
+    .btn {
+        min-height: 44px;
+    }
+}
+</style>
