@@ -1,4 +1,4 @@
-import type { Component } from 'vue';
+import { watch, type Component } from 'vue';
 import { Marker } from 'maplibre-gl';
 import type { Map as MapLibreMap, MapMouseEvent, MapTouchEvent } from 'maplibre-gl';
 import { BOTTOM_KEY, LAYER_ID, SOURCE_ID } from './constants.ts';
@@ -16,11 +16,13 @@ import {
     type Quad,
 } from './geometry.ts';
 import type { EditHistorySnapshot } from './edit-history.ts';
+import { handleBoxSizes } from './handle-size.ts';
 import { canvasFromImageFile, fileBaseName, isImage, isPdf, rasterFromCanvas } from './image-file.ts';
 import { makeExport } from './make-export.ts';
 import { listWritableMissions, uploadMissionFile } from './missions.ts';
+import { ignoreCompatMouse, shouldStartTouchMove } from './move-mode.ts';
 import { opacityState, watchOpacity } from './opacity.ts';
-import OpacityBar from './OpacityBar.vue';
+import AdjustBar from './AdjustBar.vue';
 import { importAsOverlay } from './overlay.ts';
 import { closePdf, openPdf, renderPdfPage, renderPdfThumbnail } from './pdf-render.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
@@ -48,7 +50,13 @@ let markers: Marker[] = [];
 let knob: Marker | null = null;
 let barOn = false;
 let dragging = false;
-let restorePan = false;
+/** Map gestures that the active drag switched off and must switch back on. */
+const gestureLocks = { pan: false, zoomRotate: false, pitch: false };
+/** Ends the active handle or sheet drag without side effects on the quad (cleanup paths). */
+let cancelActiveDrag: (() => void) | null = null;
+let stopAdjustWatch: (() => void) | null = null;
+/** Time of the latest touchstart on the map, to ignore the compatibility mouse events after it. */
+let lastTouchAt = -Infinity;
 let listening = false;
 let modListening = false;
 let shiftHeld = false;
@@ -184,23 +192,56 @@ function onMapMove(): void {
     applyHandleSizes();
 }
 
-function endPan(): void {
-    if (!host) return;
+/**
+ * Re-enable the map gestures that the drag switched off. Safe to call twice.
+ * The locks are a record, not one flag, so a second drag can never overwrite
+ * what the first one has to restore.
+ */
+function endGestureLock(): void {
     dragging = false;
     cornerDrag = null;
-    if (restorePan) host.map.dragPan.enable();
-    restorePan = false;
+    if (host) {
+        if (gestureLocks.pan) host.map.dragPan.enable();
+        if (gestureLocks.zoomRotate) host.map.touchZoomRotate.enable();
+        if (gestureLocks.pitch) host.map.touchPitch.enable();
+    }
+    gestureLocks.pan = false;
+    gestureLocks.zoomRotate = false;
+    gestureLocks.pitch = false;
     syncTransformFlags();
 }
 
-function beginPanLock(): void {
-    if (!host) return;
+/**
+ * Take the map gestures away from MapLibre while a handle or the sheet is dragged.
+ * A second finger then cannot pan, zoom, rotate or tilt the map under the drag.
+ * `keepMultiTouch` leaves pinch and rotate on, so a second finger can take over a touch move.
+ */
+function beginGestureLock(options: { keepMultiTouch?: boolean } = {}): boolean {
+    if (!host || dragging) return false;
     dragging = true;
     syncTransformFlags();
-    restorePan = host.map.dragPan.isEnabled();
-    if (restorePan) host.map.dragPan.disable();
+    const map = host.map;
+    gestureLocks.pan = map.dragPan.isEnabled();
+    if (gestureLocks.pan) map.dragPan.disable();
+    if (!options.keepMultiTouch) {
+        gestureLocks.zoomRotate = map.touchZoomRotate.isEnabled();
+        if (gestureLocks.zoomRotate) map.touchZoomRotate.disable();
+        gestureLocks.pitch = map.touchPitch.isEnabled();
+        if (gestureLocks.pitch) map.touchPitch.disable();
+    }
+    return true;
 }
 
+/** Stop a drag that is still running (sheet removed, plugin disabled, tab hidden, handles hidden). */
+function cancelDrag(): void {
+    const cancel = cancelActiveDrag;
+    cancelActiveDrag = null;
+    cancel?.();
+    // Nothing owns the locks any more; restore anything left over.
+    endGestureLock();
+}
+
+/** The click that follows a mouse drag must not select anything on the map. */
 function swallowClick(): void {
     host?.map.once('click', (event) => {
         event.preventDefault();
@@ -208,29 +249,47 @@ function swallowClick(): void {
     });
 }
 
-function beginMove(start: LngLat): void {
+function beginMove(start: LngLat, via: 'mouse' | 'touch'): void {
     if (!host || !quad) return;
+    const map = host.map;
+    if (!beginGestureLock({ keepMultiTouch: via === 'touch' })) return;
     const origin = cloneQuad(quad);
     pushTransformHistory();
-    beginPanLock();
-    const map = host.map;
-    const move = (event: { lngLat: { lng: number; lat: number } }) => {
-        quad = translateQuad(origin, event.lngLat.lng - start[0], event.lngLat.lat - start[1]);
+    // On touch only the first finger counts: MapLibre reports the centroid of all
+    // fingers as `lngLat`, which would make the sheet jump when a second one lands.
+    const move = (event: MapMouseEvent | MapTouchEvent) => {
+        const at = 'lngLats' in event && event.lngLats.length ? event.lngLats[0] : event.lngLat;
+        quad = translateQuad(origin, at.lng - start[0], at.lat - start[1]);
         sync();
     };
-    const up = () => {
+    let finished = false;
+    const finish = (swallow: boolean) => {
+        if (finished) return;
+        finished = true;
         map.off('mousemove', move);
         map.off('touchmove', move);
         map.off('mouseup', up);
         map.off('touchend', up);
+        map.off('touchcancel', up);
+        map.off('touchstart', secondTouch);
+        cancelActiveDrag = null;
         discardTransformPushIfUnchanged(origin);
-        endPan();
-        swallowClick();
+        endGestureLock();
+        if (swallow) swallowClick();
     };
+    const up = () => finish(via === 'mouse');
+    // A second finger hands the gesture to the map (pinch, rotate, pan).
+    // The sheet stays where it got to.
+    const secondTouch = (event: MapTouchEvent) => {
+        if (event.originalEvent.touches.length > 1) finish(false);
+    };
+    cancelActiveDrag = () => finish(false);
     map.on('mousemove', move);
     map.on('touchmove', move);
     map.on('mouseup', up);
     map.on('touchend', up);
+    map.on('touchcancel', up);
+    if (via === 'touch') map.on('touchstart', secondTouch);
 }
 
 function hitSheet(point: LngLat): boolean {
@@ -239,45 +298,83 @@ function hitSheet(point: LngLat): boolean {
 }
 
 function onMapMouseDown(event: MapMouseEvent): void {
-    if (!quad || !source || dragging) return;
+    // Compatibility mouse events after a touch the map handled must not start a move.
+    if (ignoreCompatMouse(performance.now(), lastTouchAt)) return;
+    if (!quad || !source || dragging || !sheetUi.adjusting) return;
     if (event.originalEvent.button !== 0) return;
     const point: LngLat = [event.lngLat.lng, event.lngLat.lat];
     if (!hitSheet(point)) return;
     event.preventDefault();
-    beginMove(point);
+    beginMove(point, 'mouse');
 }
 
 function onTouchStart(event: MapTouchEvent): void {
+    lastTouchAt = performance.now();
     if (!quad || !source || dragging) return;
-    if (event.originalEvent.touches.length !== 1) return;
-    const point: LngLat = [event.lngLat.lng, event.lngLat.lat];
+    const touches = event.originalEvent.touches.length;
+    // Move mode off: leave the touch alone so MapLibre pans and zooms, even over a large sheet.
+    if (!shouldStartTouchMove({ moveMode: sheetUi.moveMode, adjusting: sheetUi.adjusting, touches, hit: true })) return;
+    const first = event.lngLats[0] ?? event.lngLat;
+    const point: LngLat = [first.lng, first.lat];
     if (!hitSheet(point)) return;
     event.preventDefault();
-    beginMove(point);
+    beginMove(point, 'touch');
 }
 
+/**
+ * Follow one pointer for a handle drag. Other pointers (a second finger) are ignored,
+ * and the map keeps no gesture of its own until the drag ends, is cancelled, loses
+ * pointer capture, or the sheet goes away.
+ * @returns false when another drag is running or the pointer cannot be tracked
+ */
 function trackPointer(
     event: PointerEvent,
     onMove: (ev: PointerEvent) => void,
     onEnd?: () => void,
-): void {
+): boolean {
     const target = event.currentTarget;
-    if (!(target instanceof HTMLElement)) return;
+    if (!(target instanceof HTMLElement)) return false;
     event.preventDefault();
     event.stopPropagation();
-    beginPanLock();
-    target.setPointerCapture(event.pointerId);
-    const end = () => {
-        target.removeEventListener('pointermove', onMove);
+    if (!beginGestureLock()) return false;
+    const id = event.pointerId;
+    try {
+        target.setPointerCapture(id);
+    } catch {
+        // The pointer is already gone; the drag ends on the first event below.
+    }
+    let finished = false;
+    const move = (ev: PointerEvent) => {
+        if (ev.pointerId === id) onMove(ev);
+    };
+    const finish = (swallow: boolean) => {
+        if (finished) return;
+        finished = true;
+        target.removeEventListener('pointermove', move);
         target.removeEventListener('pointerup', end);
         target.removeEventListener('pointercancel', end);
+        target.removeEventListener('lostpointercapture', end);
+        try {
+            target.releasePointerCapture(id);
+        } catch {
+            // Already released.
+        }
+        cancelActiveDrag = null;
         onEnd?.();
-        endPan();
-        swallowClick();
+        endGestureLock();
+        if (swallow) swallowClick();
     };
-    target.addEventListener('pointermove', onMove);
+    const end = (ev: Event) => {
+        if (ev instanceof PointerEvent && ev.pointerId !== id) return;
+        // Only a mouse drag is followed by a click that must not reach the map; a touch drag is not.
+        finish(ev.type === 'pointerup' && ev instanceof PointerEvent && ev.pointerType === 'mouse');
+    };
+    cancelActiveDrag = () => finish(false);
+    target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', end);
     target.addEventListener('pointercancel', end);
+    target.addEventListener('lostpointercapture', end);
+    return true;
 }
 
 function scaleModeActive(ev?: { shiftKey?: boolean; altKey?: boolean }): boolean {
@@ -330,7 +427,13 @@ function onWindowBlur(): void {
         quad = applyCornerDrag(cornerDragMode(), cornerDrag.origin, cornerDrag.index, cornerDrag.lastCursor);
         sync();
     }
+    // The pointer-up may never arrive once the window lost focus.
+    cancelDrag();
     refreshCornerCursors();
+}
+
+function onVisibilityChange(): void {
+    if (document.hidden) cancelDrag();
 }
 
 function onSheetKeyDown(event: KeyboardEvent): void {
@@ -358,6 +461,7 @@ function listenModifiers(): void {
     window.addEventListener('keyup', onModifierKey);
     window.addEventListener('keydown', onSheetKeyDown);
     window.addEventListener('blur', onWindowBlur);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     modListening = true;
 }
 
@@ -367,22 +471,22 @@ function unlistenModifiers(): void {
     window.removeEventListener('keyup', onModifierKey);
     window.removeEventListener('keydown', onSheetKeyDown);
     window.removeEventListener('blur', onWindowBlur);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
     modListening = false;
     shiftHeld = false;
     altHeld = false;
 }
 
 function startCorner(event: PointerEvent, index: CornerIndex): void {
-    if (!quad) return;
+    // A second finger on another handle must not start a second drag.
+    if (!quad || dragging) return;
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
     const origin = cloneQuad(quad);
     pushTransformHistory();
     const startCursor = pointerToLngLat(event);
-    cornerDrag = { index, origin, target, lastCursor: startCursor };
     const mode = cornerDragMode(event);
-    target.style.cursor = mode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
-    trackPointer(event, (ev) => {
+    const tracking = trackPointer(event, (ev) => {
         if (!cornerDrag) return;
         cornerDrag.lastCursor = pointerToLngLat(ev);
         const nextMode = cornerDragMode(ev);
@@ -392,21 +496,28 @@ function startCorner(event: PointerEvent, index: CornerIndex): void {
     }, () => {
         discardTransformPushIfUnchanged(origin);
     });
+    if (!tracking) {
+        discardTransformPushIfUnchanged(origin);
+        return;
+    }
+    cornerDrag = { index, origin, target, lastCursor: startCursor };
+    target.style.cursor = mode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
 }
 
 function startRotate(event: PointerEvent): void {
-    if (!quad) return;
+    if (!quad || dragging) return;
     const origin = cloneQuad(quad);
     pushTransformHistory();
     const center = centroid(origin);
     const startAngle = screenAngle(center, pointerToLngLat(event));
-    trackPointer(event, (ev) => {
+    const tracking = trackPointer(event, (ev) => {
         const delta = screenAngle(center, pointerToLngLat(ev)) - startAngle;
         quad = rotateAroundCenter(origin, -delta);
         sync();
     }, () => {
         discardTransformPushIfUnchanged(origin);
     });
+    if (!tracking) discardTransformPushIfUnchanged(origin);
 }
 
 /** Minimum touch target edge for the transparent hit area around each handle. */
@@ -435,6 +546,11 @@ function hitBoxElement(title: string): HTMLDivElement {
     element.style.height = `${HANDLE_HIT_PX}px`;
     element.style.cursor = 'grab';
     element.style.touchAction = 'none';
+    // Touches that start on a handle never reach MapLibre's container listeners,
+    // so a handle drag cannot start a map pan, zoom or tap-to-zoom.
+    for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+        element.addEventListener(type, (event) => event.stopPropagation(), { passive: false });
+    }
     return element;
 }
 
@@ -470,7 +586,7 @@ function rotateHandleElement(): HTMLDivElement {
 
 /**
  * Size the dots for the pointer type and shrink the hit boxes on small sheets
- * so neighbouring boxes never overlap (the dots stay the same size).
+ * so neighbouring boxes never overlap (the dots shrink only if their box does).
  */
 function applyHandleSizes(): void {
     if (!host || !markers.length) return;
@@ -478,26 +594,31 @@ function applyHandleSizes(): void {
     const coarse = isCoarsePointer();
     const cornerDot = coarse ? CORNER_DOT_COARSE_PX : CORNER_DOT_FINE_PX;
     const knobDot = coarse ? KNOB_DOT_COARSE_PX : KNOB_DOT_FINE_PX;
+    const elements = markers.map((marker) => marker.getElement());
     const points = markers.map((marker) => map.project(marker.getLngLat()));
-    if (knob) points.push(map.project(knob.getLngLat()));
-    let nearest = Infinity;
-    for (let i = 0; i < points.length; i++) {
-        for (let j = i + 1; j < points.length; j++) {
-            nearest = Math.min(nearest, Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y));
-        }
+    const dots: number[] = markers.map(() => cornerDot);
+    if (knob) {
+        elements.push(knob.getElement());
+        points.push(map.project(knob.getLngLat()));
+        dots.push(knobDot);
     }
-    const hit = Math.round(Math.min(HANDLE_HIT_PX, Math.max(cornerDot, nearest)));
-    const apply = (element: HTMLElement, box: number, dotSize: number) => {
-        element.style.width = `${box}px`;
-        element.style.height = `${box}px`;
+    const sizes = handleBoxSizes(points, dots, HANDLE_HIT_PX);
+    elements.forEach((element, i) => {
+        element.style.width = `${sizes.box[i]}px`;
+        element.style.height = `${sizes.box[i]}px`;
         const dot = element.firstElementChild;
         if (dot instanceof HTMLElement) {
-            dot.style.width = `${dotSize}px`;
-            dot.style.height = `${dotSize}px`;
+            dot.style.width = `${sizes.dot[i]}px`;
+            dot.style.height = `${sizes.dot[i]}px`;
         }
-    };
-    for (const marker of markers) apply(marker.getElement(), hit, cornerDot);
-    if (knob) apply(knob.getElement(), Math.max(hit, knobDot), knobDot);
+    });
+}
+
+/** Handles are hidden while the sheet is locked (after Done on the Adjust bar). */
+function applyHandleVisibility(): void {
+    const visibility = sheetUi.adjusting ? '' : 'hidden';
+    for (const marker of markers) marker.getElement().style.visibility = visibility;
+    if (knob) knob.getElement().style.visibility = visibility;
 }
 
 function ensureMarkers(): void {
@@ -529,10 +650,12 @@ function ensureMarkers(): void {
     const knobAt = knobLngLat() ?? current[0];
     knob = new Marker({ element: knobElement, anchor: 'center' }).setLngLat(knobAt).addTo(mapHost.map);
     applyHandleSizes();
+    applyHandleVisibility();
     listenModifiers();
 }
 
 function removeMarkers(): void {
+    cancelDrag();
     for (const marker of markers) marker.remove();
     markers = [];
     knob?.remove();
@@ -542,7 +665,7 @@ function removeMarkers(): void {
 
 function ensureBar(): void {
     if (!host || barOn) return;
-    host.bottomBar.add({ key: BOTTOM_KEY, component: OpacityBar });
+    host.bottomBar.add({ key: BOTTOM_KEY, component: AdjustBar });
     barOn = true;
 }
 
@@ -628,6 +751,7 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
     sync();
     ensureBar();
     sheetUi.hasSheet = true;
+    sheetUi.adjusting = true;
     sheetUi.pageThumbs = null;
 }
 
@@ -717,9 +841,18 @@ export function bind(next: SheetHost): void {
     host.map.on('move', onMapMove);
     host.map.on('style.load', onStyleLoad);
     listening = true;
+    stopAdjustWatch = watch(() => sheetUi.adjusting, (on) => {
+        if (!on) {
+            cancelDrag();
+            sheetUi.moveMode = false;
+        }
+        applyHandleVisibility();
+    }, { flush: 'sync' });
 }
 
 export function detach(): void {
+    stopAdjustWatch?.();
+    stopAdjustWatch = null;
     if (host && listening) {
         host.map.off('mousedown', onMapMouseDown);
         host.map.off('touchstart', onTouchStart);
@@ -747,6 +880,8 @@ function clearMap(): void {
     quad = null;
     source = null;
     sheetUi.hasSheet = false;
+    sheetUi.adjusting = true;
+    sheetUi.moveMode = false;
     sheetUi.page = 1;
     sheetUi.pageCount = 1;
     sheetUi.pageThumbs = null;

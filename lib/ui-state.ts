@@ -26,4 +26,8 @@ export const sheetUi = reactive({
     canRedoTransform: false,
     /** Corner drag behaviour when Shift / Alt are not held. */
     warpMode: 'free' as WarpMode,
+    /** One-finger touch drags move the sheet (otherwise they pan the map). Never read for mouse input. */
+    moveMode: false,
+    /** False after Done on the Adjust bar: handles are hidden and the sheet cannot be dragged. */
+    adjusting: true,
 });

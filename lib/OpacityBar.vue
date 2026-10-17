@@ -1,6 +1,7 @@
 <template>
     <div
         class='rubber-opacity'
+        :class='{ "rubber-opacity--embedded": props.embedded }'
         role='group'
         aria-label='Opacity'
         @wheel.prevent='onWheel'
@@ -30,6 +31,13 @@
 
 <script setup lang='ts'>
 import { opacityState, setOpacity } from './opacity.ts';
+
+const props = withDefaults(defineProps<{
+    /** Drawn inside another panel (the Adjust bar): no box of its own, host theme colours. */
+    embedded?: boolean;
+}>(), {
+    embedded: false,
+});
 
 function onInput(event: Event): void {
     const target = event.target;
@@ -75,5 +83,30 @@ function onWheel(event: WheelEvent): void {
     text-align: center;
     color: rgba(255, 255, 255, 0.85);
     line-height: 1.1;
+}
+
+.rubber-opacity--embedded {
+    height: auto;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+}
+
+.rubber-opacity--embedded .rubber-opacity-range {
+    width: auto;
+    min-height: 24px;
+    accent-color: var(--tblr-primary);
+}
+
+.rubber-opacity--embedded .rubber-opacity-label {
+    color: var(--tblr-secondary-color, var(--tblr-secondary));
+}
+
+@media (pointer: coarse) {
+    .rubber-opacity--embedded .rubber-opacity-range {
+        min-height: 44px;
+    }
 }
 </style>
