@@ -23,7 +23,7 @@ export default class RubberSheet implements PluginInstance {
             component: {
                 render: () => h(MenuTemplate, { name: 'Rubber Sheet', back: false }, {
                     default: () => h(RubberSheetPane, { api: this.api }),
-                    buttons: () => h(HeaderButtons, { api: this.api }),
+                    buttons: () => h(HeaderButtons),
                 }),
             },
         }, 'home-menu');

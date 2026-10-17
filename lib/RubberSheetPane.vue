@@ -28,15 +28,7 @@
             <div class='form-label'>
                 Corner drag
             </div>
-            <TablerPillGroup
-                :model-value='sheetUi.warpMode'
-                :options='warpModeOptions'
-                :rounded='false'
-                size='default'
-                padding=''
-                name='rubber-sheet-warp-mode'
-                @update:model-value='onWarpMode'
-            />
+            <WarpModeStrip />
         </div>
 
         <label
@@ -147,9 +139,9 @@
                 type='button'
                 class='btn btn-outline-secondary'
                 :disabled='!sheetUi.hasSheet || sheetUi.busy'
-                @click='clearSheet'
+                @click='confirmRemove = true'
             >
-                Remove
+                Remove Sheet
             </button>
         </div>
 
@@ -204,6 +196,12 @@
         </div>
     </div>
 
+    <RemoveSheetConfirm
+        v-if='confirmRemove'
+        @close='confirmRemove = false'
+        @confirm='onRemove'
+    />
+
     <Teleport to='body'>
         <div
             v-if='donePrompt'
@@ -251,10 +249,11 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, ref, shallowRef } from 'vue';
-import { TablerPillGroup } from '@tak-ps/vue-tabler';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import ImageEditor from './ImageEditor.vue';
 import PdfPagePicker from './PdfPagePicker.vue';
+import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
+import WarpModeStrip from './WarpModeStrip.vue';
 import type { EditHistorySnapshot } from './edit-history.ts';
 import {
     addCurrentAsOverlay,
@@ -270,7 +269,6 @@ import {
     uploadCurrent,
 } from './sheet.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
-import type { WarpMode } from './warp-mode.ts';
 
 const props = defineProps<{
     api: PluginAPI;
@@ -288,11 +286,7 @@ type DonePrompt = {
 
 const donePrompt = ref<DonePrompt | null>(null);
 
-const warpModeOptions: { value: WarpMode; label: string }[] = [
-    { value: 'free', label: 'Free' },
-    { value: 'scale-corner', label: 'Scale corner' },
-    { value: 'scale-center', label: 'Scale center' },
-];
+const confirmRemove = ref(false);
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
@@ -300,6 +294,8 @@ const canExport = computed(() => {
 
 onMounted(() => {
     bind(props.api);
+    // Opening the pane brings the handles back after Done on the Adjust bar.
+    sheetUi.adjusting = true;
 });
 
 function openEditor(): void {
@@ -339,6 +335,11 @@ function showDonePrompt(title: string, body: string): void {
 
 function keepEditing(): void {
     donePrompt.value = null;
+}
+
+function onRemove(): void {
+    confirmRemove.value = false;
+    void clearSheet();
 }
 
 async function exitRubberSheet(): Promise<void> {
@@ -389,12 +390,6 @@ function onName(event: Event): void {
     sheetUi.name = target.value;
 }
 
-function onWarpMode(value: string): void {
-    if (value === 'free' || value === 'scale-corner' || value === 'scale-center') {
-        sheetUi.warpMode = value;
-    }
-}
-
 function onFormat(event: Event): void {
     const target = event.target;
     if (!(target instanceof HTMLSelectElement)) return;
@@ -406,15 +401,6 @@ function onFormat(event: Event): void {
 </script>
 
 <style scoped>
-@media (pointer: coarse) {
-    :deep(.btn-group .btn) {
-        min-height: 44px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-}
-
 .rubber-done-backdrop {
     position: fixed;
     inset: 0;

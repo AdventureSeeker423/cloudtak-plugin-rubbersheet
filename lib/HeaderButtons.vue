@@ -41,24 +41,35 @@
             Redo
         </button>
         <button
+            v-if='sheetUi.hasSheet'
             type='button'
-            class='btn btn-sm btn-outline-secondary'
-            title='Remove the sheet, or close Rubber Sheet if none is loaded'
-            @click='onCancel'
+            class='btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1'
+            title='Remove Sheet'
+            aria-label='Remove Sheet'
+            @click='confirmRemove = true'
         >
-            Cancel
+            <IconTrash
+                :size='16'
+                stroke='1'
+            />
+            <span class='d-none d-sm-inline'>Remove Sheet</span>
         </button>
+        <RemoveSheetConfirm
+            v-if='confirmRemove'
+            @close='confirmRemove = false'
+            @confirm='onRemove'
+        />
     </div>
 </template>
 
 <script setup lang='ts'>
-import type { PluginAPI } from '@tak-ps/cloudtak';
+import { ref } from 'vue';
+import { IconTrash } from '@tabler/icons-vue';
+import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import { clearSheet, redoSheetTransform, undoSheetTransform } from './sheet.ts';
 import { sheetUi } from './ui-state.ts';
 
-const props = defineProps<{
-    api: PluginAPI;
-}>();
+const confirmRemove = ref(false);
 
 function onUndo(): void {
     undoSheetTransform();
@@ -68,13 +79,9 @@ function onRedo(): void {
     redoSheetTransform();
 }
 
-function onCancel(): void {
-    if (sheetUi.hasSheet) {
-        void clearSheet();
-        return;
-    }
-    const { router } = props.api;
-    void router.push('/');
+function onRemove(): void {
+    confirmRemove.value = false;
+    void clearSheet();
 }
 </script>
 
