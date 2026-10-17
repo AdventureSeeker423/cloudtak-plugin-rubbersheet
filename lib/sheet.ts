@@ -25,6 +25,7 @@ import { importAsOverlay } from './overlay.ts';
 import { closePdf, openPdf, renderPdfPage, renderPdfThumbnail } from './pdf-render.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
 import type { Raster } from './warp.ts';
+import { resolveCornerDragMode, type CornerDragMode } from './warp-mode.ts';
 
 export interface SheetHost {
     map: MapLibreMap;
@@ -283,13 +284,11 @@ function scaleModeActive(ev?: { shiftKey?: boolean; altKey?: boolean }): boolean
     return cornerDragMode(ev) !== 'corner';
 }
 
-function cornerDragMode(ev?: { shiftKey?: boolean; altKey?: boolean }): 'center' | 'opposite' | 'corner' {
-    if (ev?.altKey || altHeld) return 'center';
-    if (ev?.shiftKey || shiftHeld) return 'opposite';
-    return 'corner';
+function cornerDragMode(ev?: { shiftKey?: boolean; altKey?: boolean }): CornerDragMode {
+    return resolveCornerDragMode(sheetUi.warpMode, !!(ev?.altKey || altHeld), !!(ev?.shiftKey || shiftHeld));
 }
 
-function applyCornerDrag(mode: 'center' | 'opposite' | 'corner', origin: Quad, index: CornerIndex, cursor: LngLat): Quad {
+function applyCornerDrag(mode: CornerDragMode, origin: Quad, index: CornerIndex, cursor: LngLat): Quad {
     if (mode === 'center') return scaleAboutCenter(origin, index, cursor);
     if (mode === 'opposite') return scaleAboutOpposite(origin, index, cursor);
     const next = cloneQuad(origin);
@@ -328,7 +327,7 @@ function onWindowBlur(): void {
     shiftHeld = false;
     altHeld = false;
     if (cornerDrag) {
-        quad = applyCornerDrag('corner', cornerDrag.origin, cornerDrag.index, cornerDrag.lastCursor);
+        quad = applyCornerDrag(cornerDragMode(), cornerDrag.origin, cornerDrag.index, cornerDrag.lastCursor);
         sync();
     }
     refreshCornerCursors();

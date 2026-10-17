@@ -1,4 +1,5 @@
 import { reactive } from 'vue';
+import type { WarpMode } from './warp-mode.ts';
 
 export type ExportType = '' | 'kmz' | 'geotiff' | 'geopdf' | 'zip';
 
@@ -23,4 +24,6 @@ export const sheetUi = reactive({
     /** Map transform undo/redo (corners, move, rotate). */
     canUndoTransform: false,
     canRedoTransform: false,
+    /** Corner drag behaviour when Shift / Alt are not held. */
+    warpMode: 'free' as WarpMode,
 });

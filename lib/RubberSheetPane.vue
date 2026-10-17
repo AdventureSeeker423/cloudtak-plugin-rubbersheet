@@ -12,13 +12,32 @@
         class='p-3'
     >
         <p class='text-secondary mb-3'>
-            Drag a corner to warp the sheet. Hold Shift to scale about the
-            opposite corner, or Alt (or Shift+Alt) to scale from the center —
-            press or release mid-drag to switch modes. Drag the rotate icon to
-            rotate, or drag the image to move it. Ctrl/Cmd+Z undoes a transform;
-            Ctrl+Y or Ctrl/Cmd+Shift+Z redoes.
+            Drag a corner to warp the sheet. Pick a corner drag mode below to
+            scale about the opposite corner or from the center, or on a keyboard
+            hold Shift (opposite corner) or Alt (center) while dragging — press
+            or release mid-drag to switch modes. Drag the rotate icon to
+            rotate, or drag the image to move it. Use Undo and Redo above (or
+            Ctrl/Cmd+Z and Ctrl+Y) to step through transforms.
             Use Edit Image for wand, eraser, and facility icon stamps.
         </p>
+
+        <div
+            v-if='sheetUi.hasSheet'
+            class='mb-3'
+        >
+            <div class='form-label'>
+                Corner drag
+            </div>
+            <TablerPillGroup
+                :model-value='sheetUi.warpMode'
+                :options='warpModeOptions'
+                :rounded='false'
+                size='default'
+                padding=''
+                name='rubber-sheet-warp-mode'
+                @update:model-value='onWarpMode'
+            />
+        </div>
 
         <label
             class='form-label'
@@ -232,6 +251,7 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, ref, shallowRef } from 'vue';
+import { TablerPillGroup } from '@tak-ps/vue-tabler';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import ImageEditor from './ImageEditor.vue';
 import PdfPagePicker from './PdfPagePicker.vue';
@@ -250,6 +270,7 @@ import {
     uploadCurrent,
 } from './sheet.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
+import type { WarpMode } from './warp-mode.ts';
 
 const props = defineProps<{
     api: PluginAPI;
@@ -266,6 +287,12 @@ type DonePrompt = {
 };
 
 const donePrompt = ref<DonePrompt | null>(null);
+
+const warpModeOptions: { value: WarpMode; label: string }[] = [
+    { value: 'free', label: 'Free' },
+    { value: 'scale-corner', label: 'Scale corner' },
+    { value: 'scale-center', label: 'Scale center' },
+];
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
@@ -360,6 +387,12 @@ function onName(event: Event): void {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     sheetUi.name = target.value;
+}
+
+function onWarpMode(value: string): void {
+    if (value === 'free' || value === 'scale-corner' || value === 'scale-center') {
+        sheetUi.warpMode = value;
+    }
 }
 
 function onFormat(event: Event): void {
