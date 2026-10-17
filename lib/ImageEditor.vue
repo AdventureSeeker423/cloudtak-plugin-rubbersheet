@@ -80,6 +80,19 @@
                     <button
                         type='button'
                         class='ie-tool'
+                        :class='{ active: tool === "hand" }'
+                        title='Hand — drag to pan'
+                        @click='setTool("hand")'
+                    >
+                        <IconHandStop
+                            :size='20'
+                            stroke='1.5'
+                        />
+                        <span>Hand</span>
+                    </button>
+                    <button
+                        type='button'
+                        class='ie-tool'
                         :class='{ active: tool === "wand" }'
                         title='Magic Wand — select connected color'
                         @click='setTool("wand")'
@@ -161,14 +174,64 @@
                     ref='viewport'
                     class='ie-view'
                     :class='cursorClass'
+                    :data-ie-scale='scale'
+                    :data-ie-pan-x='panX'
+                    :data-ie-pan-y='panY'
                     @wheel.prevent='onWheel'
                     @pointerdown='onPointerDown'
                     @pointermove='onPointerMove'
                     @pointerup='onPointerUp'
-                    @pointercancel='onPointerUp'
+                    @pointercancel='onPointerCancel'
+                    @lostpointercapture='onLostPointerCapture'
                     @pointerleave='onPointerLeave'
                 >
                     <canvas ref='canvasEl' />
+                    <div
+                        class='ie-zoom'
+                        role='group'
+                        aria-label='Zoom'
+                        @pointerdown.stop
+                        @wheel.stop
+                    >
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Zoom in'
+                            aria-label='Zoom in'
+                            :disabled='scale >= MAX_SCALE'
+                            @click='zoomBy(ZOOM_STEP)'
+                        >
+                            <IconZoomIn
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Zoom out'
+                            aria-label='Zoom out'
+                            :disabled='scale <= MIN_SCALE'
+                            @click='zoomBy(1 / ZOOM_STEP)'
+                        >
+                            <IconZoomOut
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Fit to screen'
+                            aria-label='Fit to screen'
+                            @click='fitView'
+                        >
+                            <IconArrowsMaximize
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                    </div>
                     <div
                         v-if='hasSelection'
                         class='ie-selection-bar'
@@ -210,7 +273,16 @@
                     class='ie-options'
                     :class='{ "ie-options-wide": tool === "stamp" }'
                 >
-                    <template v-if='tool === "wand"'>
+                    <template v-if='tool === "hand"'>
+                        <div class='ie-opt-label'>
+                            Pan
+                        </div>
+                        <p class='ie-hint'>
+                            <span class='ie-fine-hint'>Drag to pan.</span>
+                            <span class='ie-touch-hint'>Drag to pan. Pinch to zoom. Double-tap to fit.</span>
+                        </p>
+                    </template>
+                    <template v-else-if='tool === "wand"'>
                         <div class='ie-opt-label'>Match range</div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
@@ -245,7 +317,8 @@
                             </button>
                         </div>
                         <p class='ie-hint'>
-                            Click to select.
+                            <span class='ie-fine-hint'>Click to select.</span>
+                            <span class='ie-touch-hint'>Tap to select. Two fingers pan and zoom.</span>
                             <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
                             Then Delete.
                         </p>
@@ -274,6 +347,7 @@
                         </div>
                         <p class='ie-hint'>
                             Drag to select.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
                             <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
                             Then Delete.
                         </p>
@@ -307,6 +381,7 @@
                         >
                         <p class='ie-hint'>
                             Pick a color to select every match in the image. Then Delete.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
                         </p>
                     </template>
                     <template v-else-if='tool === "stamp"'>
@@ -364,9 +439,14 @@
                             Clear pick
                         </button>
                         <p class='ie-hint'>
-                            Pick an icon, then click to place.
+                            Pick an icon, then
+                            <span class='ie-fine-hint'>click</span>
+                            <span class='ie-touch-hint'>tap</span>
+                            to place.
                             <span class='ie-kbd-hint'>Esc clears the pick.</span>
-                            Click a placed icon to remove.
+                            <span class='ie-fine-hint'>Click</span>
+                            <span class='ie-touch-hint'>Tap</span>
+                            a placed icon to remove.
                             <span class='ie-kbd-hint'>[ ] size · Shift twice as fast.</span>
                         </p>
                     </template>
@@ -381,8 +461,16 @@
                             v-model.number='brushSize'
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
+                        <label class='ie-toggle ie-touch-only'>
+                            <input
+                                v-model='offsetCursor'
+                                type='checkbox'
+                            >
+                            <span>Offset cursor</span>
+                        </label>
                         <p class='ie-hint'>
                             Drag to erase.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
                             <span class='ie-kbd-hint'>[ ] change size · Shift twice as fast.</span>
                         </p>
                     </template>
@@ -439,6 +527,12 @@
 
 <script setup lang='ts'>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+    IconArrowsMaximize,
+    IconHandStop,
+    IconZoomIn,
+    IconZoomOut,
+} from '@tabler/icons-vue';
 import { MAX_IMAGE_SIDE } from './constants.ts';
 import { EditHistory, EDIT_HISTORY_CAP, type EditHistorySnapshot } from './edit-history.ts';
 import {
@@ -462,6 +556,16 @@ import {
     type PlacedStamp,
     type StampKind,
 } from './stamp-icons.ts';
+import {
+    fitView as computeFit,
+    isTap,
+    MAX_SCALE,
+    MIN_SCALE,
+    pinchView,
+    zoomAbout,
+    type PinchStart,
+    type View,
+} from './viewport-math.ts';
 
 const props = defineProps<{
     source: HTMLCanvasElement;
@@ -476,7 +580,7 @@ const emit = defineEmits<{
     cancel: [];
 }>();
 
-type Tool = 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
+type Tool = 'hand' | 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
 
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
@@ -488,6 +592,8 @@ const selectionModeOptions: { value: FloodSelectMode; label: string }[] = [
     { value: 'subtract', label: 'Subtract' },
 ];
 const brushSize = ref(12);
+/** Touch only: aim the eraser with a circle drawn above the finger so the finger does not hide it. */
+const offsetCursor = ref(false);
 const stampKind = ref<StampKind | null>(null);
 const stampSize = ref(40);
 const facilityCatalog = FACILITY_STAMP_CATALOG;
@@ -551,6 +657,36 @@ let stampFuture: PlacedStamp[][] = props.history
     : [];
 let nextStampId = 1;
 
+/** Zoom button step, and how far above the finger the offset cursor sits. */
+const ZOOM_STEP = 1.25;
+const OFFSET_CURSOR_PX = 60;
+const FIT_PAD = 40;
+/** Two taps this close in time and space count as a double-tap. */
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 30;
+
+type TouchPointer = {
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+    t: number;
+};
+
+/** Touch pointers currently down, in landing order. Mouse and pen take the legacy path. */
+const pointers = new Map<number, TouchPointer>();
+/** pinch: two or more fingers pan and zoom. tool: one finger drives the active tool. */
+let gesture: 'none' | 'tool' | 'pinch' = 'none';
+/** After a pinch, the remaining finger is ignored until every finger is lifted. */
+let ignoreUntilAllUp = false;
+let pinchStart: PinchStart | null = null;
+let lastTap: { x: number; y: number; t: number } | null = null;
+/** Mouse or pen pointer that owns the current drag; other pointers are ignored meanwhile. */
+let primaryPointerId: number | null = null;
+let paintRaf = 0;
+let fingerClientX = 0;
+let fingerClientY = 0;
+
 let dragging = false;
 let panning = false;
 let strokeActive = false;
@@ -589,7 +725,7 @@ const targetColorCss = computed(
 );
 
 const cursorClass = computed(() => {
-    if (panning || spaceDown) return 'cursor-pan';
+    if (panning || spaceDown || tool.value === 'hand') return 'cursor-pan';
     if (tool.value === 'eraser') return 'cursor-none';
     if (tool.value === 'stamp') return 'cursor-stamp';
     if (tool.value === 'color') return 'cursor-eyedrop';
@@ -865,10 +1001,13 @@ function paint(): void {
     const dpr = window.devicePixelRatio || 1;
     const cssW = host.clientWidth;
     const cssH = host.clientHeight;
-    canvas.width = Math.max(1, Math.floor(cssW * dpr));
-    canvas.height = Math.max(1, Math.floor(cssH * dpr));
-    canvas.style.width = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
+    // Assigning width/height reallocates the backing store, so only do it on a real size change.
+    const pixelW = Math.max(1, Math.floor(cssW * dpr));
+    const pixelH = Math.max(1, Math.floor(cssH * dpr));
+    if (canvas.width !== pixelW) canvas.width = pixelW;
+    if (canvas.height !== pixelH) canvas.height = pixelH;
+    if (canvas.style.width !== `${cssW}px`) canvas.style.width = `${cssW}px`;
+    if (canvas.style.height !== `${cssH}px`) canvas.style.height = `${cssH}px`;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -927,7 +1066,7 @@ function paint(): void {
         ctx.fillRect(left, top, rw, rh);
     }
 
-    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown) {
+    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown && gesture !== 'pinch') {
         const hover = viewToImage(hoverClientX, hoverClientY);
         if (hover) {
             const hit = hitTestStamp(stamps, hover.x, hover.y);
@@ -947,10 +1086,19 @@ function paint(): void {
     ctx.restore();
 
     // Brush size cursor in screen space
-    if (tool.value === 'eraser' && pointerInView && !panning && !spaceDown) {
+    if (tool.value === 'eraser' && pointerInView && !panning && !spaceDown && gesture !== 'pinch') {
         const rect = host.getBoundingClientRect();
         const cx = hoverClientX - rect.left;
         const cy = hoverClientY - rect.top;
+        if (hoverClientY !== fingerClientY || hoverClientX !== fingerClientX) {
+            // Offset cursor: thin line from the finger to the brush circle.
+            ctx.beginPath();
+            ctx.moveTo(fingerClientX - rect.left, fingerClientY - rect.top);
+            ctx.lineTo(cx, cy);
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
         const r = (brushSize.value / 2) * scale.value;
         ctx.beginPath();
         ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2);
@@ -967,15 +1115,36 @@ function paint(): void {
     }
 }
 
+function schedulePaint(): void {
+    if (paintRaf) return;
+    paintRaf = requestAnimationFrame(() => {
+        paintRaf = 0;
+        paint();
+    });
+}
+
+function currentView(): View {
+    return { scale: scale.value, panX: panX.value, panY: panY.value };
+}
+
+function setView(view: View): void {
+    scale.value = view.scale;
+    panX.value = view.panX;
+    panY.value = view.panY;
+}
+
 function fitView(): void {
     const host = viewport.value;
     if (!host) return;
-    const pad = 40;
-    const sx = (host.clientWidth - pad * 2) / width;
-    const sy = (host.clientHeight - pad * 2) / height;
-    scale.value = Math.min(1, Math.max(0.05, Math.min(sx, sy)));
-    panX.value = (host.clientWidth - width * scale.value) / 2;
-    panY.value = (host.clientHeight - height * scale.value) / 2;
+    setView(computeFit(host.clientWidth, host.clientHeight, width, height, FIT_PAD));
+    paint();
+}
+
+/** Zoom by `factor` around the centre of the viewport (zoom buttons). */
+function zoomBy(factor: number): void {
+    const host = viewport.value;
+    if (!host) return;
+    setView(zoomAbout(currentView(), factor, host.clientWidth / 2, host.clientHeight / 2));
     paint();
 }
 
@@ -994,16 +1163,8 @@ function onWheel(event: WheelEvent): void {
     const host = viewport.value;
     if (!host) return;
     const rect = host.getBoundingClientRect();
-    const vx = event.clientX - rect.left;
-    const vy = event.clientY - rect.top;
-    const before = 1 / scale.value;
     const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(8, Math.max(0.05, scale.value * factor));
-    const ix = (vx - panX.value) * before;
-    const iy = (vy - panY.value) * before;
-    scale.value = next;
-    panX.value = vx - ix * next;
-    panY.value = vy - iy * next;
+    setView(zoomAbout(currentView(), factor, event.clientX - rect.left, event.clientY - rect.top));
     paint();
 }
 
@@ -1037,12 +1198,324 @@ function finishRectDrag(): void {
     paint();
 }
 
+/** Wand: flood-select at an image point. */
+function selectAt(point: { x: number; y: number }, mode: FloodSelectMode): void {
+    floodSelect(
+        rgba,
+        width,
+        height,
+        point.x,
+        point.y,
+        fuzziness.value,
+        selectionMask,
+        mode,
+        selectionScratch,
+    );
+    rebuildSelectionVisuals();
+    paint();
+}
+
+/** Selective Color: sample the pixel and select every match. */
+function pickColorAt(point: { x: number; y: number }): void {
+    const sampled = sampleColor(rgba, width, height, point.x, point.y);
+    if (!sampled) return;
+    targetR.value = sampled.r;
+    targetG.value = sampled.g;
+    targetB.value = sampled.b;
+    hasColorTarget.value = true;
+    applyColorSelection();
+}
+
+/** Eraser: snapshot for undo, then dab at the first point. */
+function beginStroke(point: { x: number; y: number }): void {
+    pushEdit();
+    strokeActive = true;
+    lastBrushX = point.x;
+    lastBrushY = point.y;
+    eraseBrush(rgba, width, height, point.x, point.y, brushSize.value / 2);
+    writeWorking();
+    syncHistoryFlags();
+    paint();
+}
+
+function continueStroke(point: { x: number; y: number }): void {
+    const dx = point.x - lastBrushX;
+    const dy = point.y - lastBrushY;
+    const dist = Math.hypot(dx, dy);
+    const step = Math.max(1, brushSize.value / 4);
+    const steps = Math.max(1, Math.ceil(dist / step));
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        eraseBrush(
+            rgba,
+            width,
+            height,
+            lastBrushX + dx * t,
+            lastBrushY + dy * t,
+            brushSize.value / 2,
+        );
+    }
+    lastBrushX = point.x;
+    lastBrushY = point.y;
+    writeWorking();
+    schedulePaint();
+}
+
+function isInsideImage(point: { x: number; y: number }): boolean {
+    return point.x >= 0 && point.y >= 0 && point.x < width && point.y < height;
+}
+
+/**
+ * Abandon whatever the active tool was doing: roll back an eraser stroke
+ * (including its undo snapshot) and drop a marquee without selecting.
+ */
+function cancelInProgress(): void {
+    if (strokeActive && editHistory.rollback(rgba)) {
+        stampPast.pop();
+        writeWorking();
+        syncHistoryFlags();
+    }
+    rectDrag = null;
+    strokeActive = false;
+    dragging = false;
+    panning = false;
+}
+
+/** Position of an event inside the viewport element. */
+function viewportPoint(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = viewport.value?.getBoundingClientRect();
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+}
+
+/** Where the active tool acts. With the offset cursor the eraser works above the finger. */
+function effectiveClient(event: PointerEvent): { x: number; y: number } {
+    if (offsetCursor.value && event.pointerType === 'touch' && tool.value === 'eraser') {
+        return { x: event.clientX, y: event.clientY - OFFSET_CURSOR_PX };
+    }
+    return { x: event.clientX, y: event.clientY };
+}
+
+function beginPinch(): void {
+    const [a, b] = [...pointers.values()];
+    if (!a || !b) return;
+    const pa = viewportPoint(a.x, a.y);
+    const pb = viewportPoint(b.x, b.y);
+    pinchStart = {
+        d0: Math.hypot(pb.x - pa.x, pb.y - pa.y),
+        m0: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 },
+        scale0: scale.value,
+        panX0: panX.value,
+        panY0: panY.value,
+    };
+    gesture = 'pinch';
+    paint();
+}
+
+function updatePinch(): void {
+    const [a, b] = [...pointers.values()];
+    if (!pinchStart || !a || !b) return;
+    const pa = viewportPoint(a.x, a.y);
+    const pb = viewportPoint(b.x, b.y);
+    setView(pinchView(pinchStart, {
+        d: Math.hypot(pb.x - pa.x, pb.y - pa.y),
+        m: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 },
+    }));
+    schedulePaint();
+}
+
+function onTouchDown(event: PointerEvent, target: HTMLElement): void {
+    event.preventDefault();
+    try {
+        target.setPointerCapture(event.pointerId);
+    } catch {
+        // The pointer ended before capture; the up/cancel handler cleans up.
+    }
+    pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+        startX: event.clientX,
+        startY: event.clientY,
+        t: event.timeStamp,
+    });
+
+    if (pointers.size >= 2) {
+        // A second finger means pan/zoom, never a tool action.
+        cancelInProgress();
+        beginPinch();
+        return;
+    }
+
+    gesture = 'tool';
+    pointerInView = true;
+    const at = effectiveClient(event);
+    hoverClientX = at.x;
+    hoverClientY = at.y;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
+
+    if (tool.value === 'hand') {
+        panning = true;
+        panStartX = event.clientX;
+        panStartY = event.clientY;
+        panOriginX = panX.value;
+        panOriginY = panY.value;
+        paint();
+        return;
+    }
+
+    if (tool.value === 'rect') {
+        const point = viewToImage(event.clientX, event.clientY);
+        if (!point) return;
+        const clamped = clampImagePoint(point);
+        dragging = true;
+        rectDrag = {
+            x0: clamped.x,
+            y0: clamped.y,
+            x1: clamped.x,
+            y1: clamped.y,
+            mode: selectModeFromEvent(event),
+        };
+        paint();
+        return;
+    }
+
+    if (tool.value === 'eraser') {
+        const point = viewToImage(at.x, at.y);
+        if (point && isInsideImage(point)) {
+            dragging = true;
+            beginStroke(point);
+        } else {
+            paint();
+        }
+        return;
+    }
+
+    // Wand, Selective Color and Icons act on release so a pinch never selects or places.
+    paint();
+}
+
+function onTouchMove(event: PointerEvent): void {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+
+    if (gesture === 'pinch') {
+        updatePinch();
+        return;
+    }
+    if (gesture !== 'tool' || ignoreUntilAllUp) return;
+
+    const at = effectiveClient(event);
+    hoverClientX = at.x;
+    hoverClientY = at.y;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
+
+    if (panning) {
+        panX.value = panOriginX + (event.clientX - panStartX);
+        panY.value = panOriginY + (event.clientY - panStartY);
+        schedulePaint();
+        return;
+    }
+
+    if (tool.value === 'rect' && dragging && rectDrag) {
+        const point = viewToImage(event.clientX, event.clientY);
+        if (!point) return;
+        const clamped = clampImagePoint(point);
+        rectDrag.x1 = clamped.x;
+        rectDrag.y1 = clamped.y;
+        schedulePaint();
+        return;
+    }
+
+    if (tool.value === 'eraser') {
+        if (dragging && strokeActive) {
+            const point = viewToImage(at.x, at.y);
+            if (point) continueStroke(point);
+        } else {
+            schedulePaint();
+        }
+        return;
+    }
+
+    if (tool.value === 'stamp') schedulePaint();
+}
+
+/** One finger was lifted with the tool still in charge: commit or fire the tap action. */
+function finishTouchTool(pointer: TouchPointer, up: { x: number; y: number; t: number }): void {
+    const tapped = isTap({ x: pointer.startX, y: pointer.startY, t: pointer.t }, up);
+    if (rectDrag) finishRectDrag();
+    dragging = false;
+    panning = false;
+    strokeActive = false;
+    if (!tapped) return;
+
+    const point = viewToImage(up.x, up.y);
+    if (!point) return;
+    const inside = isInsideImage(point);
+
+    // Double-tap fits the view. It is limited to the Hand tool and taps outside the
+    // image, because the other tools already act on a tap and must not wait for a second one.
+    const previous = lastTap;
+    lastTap = up;
+    const isDouble = previous !== null
+        && up.t - previous.t <= DOUBLE_TAP_MS
+        && Math.hypot(up.x - previous.x, up.y - previous.y) <= DOUBLE_TAP_PX;
+    if (isDouble && (tool.value === 'hand' || (tool.value !== 'stamp' && !inside))) {
+        lastTap = null;
+        fitView();
+        return;
+    }
+
+    if (tool.value === 'wand' && inside) selectAt(point, selectionMode.value);
+    else if (tool.value === 'color' && inside) pickColorAt(point);
+    else if (tool.value === 'stamp') placeOrRemoveStamp(point.x, point.y);
+}
+
+function releaseTouch(event: PointerEvent, cancelled: boolean): void {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    pointers.delete(event.pointerId);
+
+    if (gesture === 'pinch') {
+        if (pointers.size >= 2) {
+            beginPinch();
+        } else {
+            gesture = 'none';
+            pinchStart = null;
+            // The remaining finger must not start a stroke or tap after the pinch.
+            ignoreUntilAllUp = true;
+        }
+    } else if (cancelled) {
+        cancelInProgress();
+    } else if (gesture === 'tool' && !ignoreUntilAllUp) {
+        finishTouchTool(pointer, { x: event.clientX, y: event.clientY, t: event.timeStamp });
+    }
+
+    if (pointers.size === 0) {
+        gesture = 'none';
+        pinchStart = null;
+        ignoreUntilAllUp = false;
+        pointerInView = false;
+    }
+    paint();
+}
+
 function onPointerDown(event: PointerEvent): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
 
-    if (event.button === 1 || spaceDown || event.button === 2) {
+    if (event.pointerType === 'touch') {
+        onTouchDown(event, target);
+        return;
+    }
+    // Mouse and pen: one drag at a time.
+    if (primaryPointerId !== null || pointers.size > 0) return;
+
+    if (event.button === 1 || spaceDown || event.button === 2 || (tool.value === 'hand' && event.button === 0)) {
         panning = true;
+        primaryPointerId = event.pointerId;
         panStartX = event.clientX;
         panStartY = event.clientY;
         panOriginX = panX.value;
@@ -1060,6 +1533,7 @@ function onPointerDown(event: PointerEvent): void {
     if (tool.value === 'rect') {
         const clamped = clampImagePoint(point);
         dragging = true;
+        primaryPointerId = event.pointerId;
         target.setPointerCapture(event.pointerId);
         event.preventDefault();
         rectDrag = {
@@ -1082,62 +1556,46 @@ function onPointerDown(event: PointerEvent): void {
         return;
     }
 
-    if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return;
+    if (!isInsideImage(point)) return;
 
     dragging = true;
     target.setPointerCapture(event.pointerId);
     event.preventDefault();
 
     if (tool.value === 'wand') {
-        floodSelect(
-            rgba,
-            width,
-            height,
-            point.x,
-            point.y,
-            fuzziness.value,
-            selectionMask,
-            selectModeFromEvent(event),
-            selectionScratch,
-        );
-        rebuildSelectionVisuals();
-        paint();
+        selectAt(point, selectModeFromEvent(event));
         dragging = false;
         return;
     }
 
     if (tool.value === 'color') {
-        const sampled = sampleColor(rgba, width, height, point.x, point.y);
-        if (sampled) {
-            targetR.value = sampled.r;
-            targetG.value = sampled.g;
-            targetB.value = sampled.b;
-            hasColorTarget.value = true;
-            applyColorSelection();
-        }
+        pickColorAt(point);
         dragging = false;
         return;
     }
 
-    pushEdit();
-    strokeActive = true;
-    lastBrushX = point.x;
-    lastBrushY = point.y;
-    eraseBrush(rgba, width, height, point.x, point.y, brushSize.value / 2);
-    writeWorking();
-    syncHistoryFlags();
-    paint();
+    primaryPointerId = event.pointerId;
+    beginStroke(point);
 }
 
 function onPointerMove(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        onTouchMove(event);
+        return;
+    }
+    if (pointers.size > 0) return;
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+
     pointerInView = true;
     hoverClientX = event.clientX;
     hoverClientY = event.clientY;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
 
     if (panning) {
         panX.value = panOriginX + (event.clientX - panStartX);
         panY.value = panOriginY + (event.clientY - panStartY);
-        paint();
+        schedulePaint();
         return;
     }
 
@@ -1147,47 +1605,34 @@ function onPointerMove(event: PointerEvent): void {
         const clamped = clampImagePoint(point);
         rectDrag.x1 = clamped.x;
         rectDrag.y1 = clamped.y;
-        paint();
+        schedulePaint();
         return;
     }
 
     if (tool.value === 'stamp') {
-        paint();
+        schedulePaint();
         return;
     }
 
     if (tool.value === 'eraser' && (!dragging || !strokeActive)) {
-        paint();
+        schedulePaint();
         return;
     }
 
     if (!dragging || !strokeActive || tool.value !== 'eraser') return;
     const point = viewToImage(event.clientX, event.clientY);
     if (!point) return;
-
-    const dx = point.x - lastBrushX;
-    const dy = point.y - lastBrushY;
-    const dist = Math.hypot(dx, dy);
-    const step = Math.max(1, brushSize.value / 4);
-    const steps = Math.max(1, Math.ceil(dist / step));
-    for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        eraseBrush(
-            rgba,
-            width,
-            height,
-            lastBrushX + dx * t,
-            lastBrushY + dy * t,
-            brushSize.value / 2,
-        );
-    }
-    lastBrushX = point.x;
-    lastBrushY = point.y;
-    writeWorking();
-    paint();
+    continueStroke(point);
 }
 
-function onPointerUp(): void {
+function onPointerUp(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        releaseTouch(event, false);
+        return;
+    }
+    if (pointers.size > 0) return;
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+    primaryPointerId = null;
     if (tool.value === 'rect' && rectDrag) finishRectDrag();
     dragging = false;
     panning = false;
@@ -1195,7 +1640,30 @@ function onPointerUp(): void {
     paint();
 }
 
-function onPointerLeave(): void {
+/** The browser took the pointer away (scroll, system gesture): never commit a half-done edit. */
+function onPointerCancel(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        releaseTouch(event, true);
+        return;
+    }
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+    primaryPointerId = null;
+    cancelInProgress();
+    paint();
+}
+
+function onLostPointerCapture(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        // Normal releases already removed the pointer in onPointerUp.
+        if (pointers.has(event.pointerId)) releaseTouch(event, true);
+        return;
+    }
+    if (primaryPointerId === event.pointerId) onPointerCancel(event);
+}
+
+function onPointerLeave(event: PointerEvent): void {
+    // A touch pointer is captured until it is lifted; onPointerUp resets it.
+    if (event.pointerType === 'touch') return;
     pointerInView = false;
     if (!dragging && !panning) paint();
 }
@@ -1379,7 +1847,7 @@ onMounted(() => {
     syncHistoryFlags();
     fitView();
     if (viewport.value) {
-        resizeObserver = new ResizeObserver(() => paint());
+        resizeObserver = new ResizeObserver(() => schedulePaint());
         resizeObserver.observe(viewport.value);
     }
     rootEl.value?.focus();
@@ -1393,6 +1861,8 @@ onUnmounted(() => {
     window.removeEventListener('keyup', onEscapeKeyUpCapture, true);
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
+    cancelAnimationFrame(paintRaf);
+    pointers.clear();
     editHistory.clear();
     stamps = [];
     stampPast = [];
@@ -1568,7 +2038,44 @@ onUnmounted(() => {
     min-width: 0;
     min-height: 0;
     touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     background: #15181d;
+}
+
+.ie-zoom {
+    position: absolute;
+    right: 12px;
+    bottom: 18px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ie-zoom-btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--cloudtak-surface-border);
+    border-radius: 8px;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    cursor: pointer;
+}
+
+.ie-zoom-btn:hover:not(:disabled) {
+    border-color: var(--tblr-primary);
+}
+
+.ie-zoom-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
 }
 
 .ie-view canvas {
@@ -1840,10 +2347,44 @@ onUnmounted(() => {
     justify-content: flex-end;
     gap: 8px;
 }
+/* Touch wording is hidden unless the primary pointer is coarse. */
+.ie-touch-hint,
+.ie-touch-only {
+    display: none;
+}
+
+.ie-toggle {
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: #c5cad3;
+    cursor: pointer;
+}
+
+.ie-toggle input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: #5b9cff;
+}
+
 @media (pointer: coarse) {
     /* Shift / Ctrl / bracket / Space / wheel wording means nothing without a keyboard. */
-    .ie-kbd-hint {
+    .ie-kbd-hint,
+    .ie-fine-hint {
         display: none;
+    }
+    .ie-touch-hint {
+        display: inline;
+    }
+    .ie-toggle.ie-touch-only {
+        display: flex;
+        min-height: 44px;
+    }
+    .ie-zoom-btn {
+        width: 44px;
+        height: 44px;
     }
     .ie-btn,
     .ie-seg-btn {
