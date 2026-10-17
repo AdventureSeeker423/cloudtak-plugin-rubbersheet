@@ -16,6 +16,7 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 * **Download** saves that file. **Upload to Data Sync** lists writable data syncs (same idea as Files → Share to Data Sync — including syncs you can write to even if you are not currently subscribed) and uploads the export.
 * **Add to Map as Overlay** builds a north-up GeoTIFF, imports it through CloudTAK (same path as Files → Add to Map as Overlay), waits for Cloud Optimized tiles via the PMTiles TileJSON endpoint, and opens the Overlays menu. The live rubber-sheet warp stays editable until you Cancel/Remove.
 * Imagery is JPEG quality 85. A picture that already has transparent pixels stays PNG inside the KMZ. GeoTIFF and GeoPDF are a north-up copy of the fitted sheet, at most 4096 px on the long side, so they match what you see even though those formats cannot store a four-corner warp. The KMZ keeps the exact corners with a KML `gx:LatLonQuad`.
+* The menu icon is traced from an ATAK-CIV icon (GPL-3.0). See [NOTICE](NOTICE).
 
 ## Install
 

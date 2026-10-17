@@ -1,0 +1,18 @@
+cloudtak-plugin-rubbersheet
+
+This plugin is licensed under the Apache License 2.0. See LICENSE.
+
+Third-party material
+
+lib/icon.ts contains an icon traced from ATAK-CIV 5.5.1.10:
+
+  Project: https://github.com/deptofdefense/AndroidTacticalAssaultKit-CIV
+  Commit:  9f6893dd657feacc35ec5de03dad721c2e44170e
+  File:    atak/ATAK/app/src/main/res/drawable-xxxhdpi/nav_rubber_sheet.png
+  License: GPL-3.0
+
+The icon was traced to SVG path data by TAK-NZ/CloudTAK (branding/atak-icons).
+Distributions of builds that include lib/icon.ts must carry this notice.
+
+When this plugin is built into the CloudTAK web bundle, that combined bundle is
+distributed by its operator under AGPL-3.0.

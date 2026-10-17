@@ -4,18 +4,9 @@ import type { PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
 import HeaderButtons from './lib/HeaderButtons.vue';
 import MenuTemplate from './lib/MenuTemplate.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
-import IconUrl from './lib/RubberSheet.svg';
+import { IconRubberSheet } from './lib/icon.ts';
 import { MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
 import { bind, detach } from './lib/sheet.ts';
-
-const IconRubberSheet = {
-    render: () => h('img', {
-        src: IconUrl,
-        width: 32,
-        height: 32,
-        alt: 'Rubber Sheet',
-    }),
-};
 
 export default class RubberSheet implements PluginInstance {
     api: PluginAPI;
