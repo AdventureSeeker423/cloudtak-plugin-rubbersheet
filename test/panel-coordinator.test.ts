@@ -303,3 +303,144 @@ test('a minimized plugin that goes away while waiting hands the wait to the one 
     c.coordinator.closed();
     assert.deepEqual(a.calls, ['minimize', 'restore']);
 });
+
+/** Panel events as they travel, in order: `open:id`, `open:id!` (restored) and `close:id>by`. */
+function wire(target: EventTarget): string[] {
+    const log: string[] = [];
+    const take = (kind: string) => (e: Event): void => {
+        const d = (e as CustomEvent<PanelEventDetail>).detail;
+        log.push(`${kind}:${d.id}${kind === 'open' && d.restored ? '!' : ''}${d.by ? `>${d.by}` : ''}`);
+    };
+    target.addEventListener(PANEL_OPEN, take('open'));
+    target.addEventListener(PANEL_CLOSE, take('close'));
+    return log;
+}
+
+test('only a selector restore carries restored: true; opened() does not', () => {
+    const t = new EventTarget();
+    const a = plugin(t, 'a', true);
+    fire(t, PANEL_OPEN, { id: 'b', area: 'bottom' });
+    const log = wire(t);
+    a.coordinator.restoreFromSelector();
+    a.coordinator.opened();
+    assert.deepEqual(log, ['open:a!', 'open:a']);
+});
+
+test('a plain foreign open does not retarget a minimized plugin', () => {
+    const t = new EventTarget();
+    const a = plugin(t, 'a', true);
+    fire(t, PANEL_OPEN, { id: 'b', area: 'bottom' });
+    for (const restored of [undefined, false]) {
+        fire(t, PANEL_OPEN, { id: 'c', area: 'bottom', restored });
+    }
+    fire(t, PANEL_CLOSE, { id: 'c', area: 'bottom' });
+    assert.deepEqual(a.calls, ['minimize'], 'c is not the one it waits for');
+    fire(t, PANEL_CLOSE, { id: 'b', area: 'bottom' });
+    assert.deepEqual(a.calls, ['minimize', 'restore']);
+});
+
+test('a malformed restored field is ignored: only the boolean true retargets', () => {
+    for (const restored of ['true', 1, {}, [], null, 'yes']) {
+        const t = new EventTarget();
+        const a = plugin(t, 'a', true);
+        fire(t, PANEL_OPEN, { id: 'b', area: 'bottom' });
+        fire(t, PANEL_OPEN, { id: 'c', area: 'bottom', restored });
+        fire(t, PANEL_CLOSE, { id: 'c', area: 'bottom' });
+        assert.deepEqual(a.calls, ['minimize'], `restored=${JSON.stringify(restored)} must not retarget`);
+        fire(t, PANEL_CLOSE, { id: 'b', area: 'bottom' });
+        assert.deepEqual(a.calls, ['minimize', 'restore']);
+    }
+});
+
+test('a restored open from a foreign plugin retargets a minimized plugin to that opener', () => {
+    const t = new EventTarget();
+    const a = plugin(t, 'a', true);
+    fire(t, PANEL_OPEN, { id: 'b', area: 'bottom' });
+    fire(t, PANEL_OPEN, { id: 'c', area: 'bottom', restored: true });
+    fire(t, PANEL_CLOSE, { id: 'b', area: 'bottom' });
+    assert.deepEqual(a.calls, ['minimize'], 'b is no longer the one it waits for');
+    fire(t, PANEL_CLOSE, { id: 'c', area: 'bottom' });
+    assert.deepEqual(a.calls, ['minimize', 'restore']);
+});
+
+test('a restored open from itself is ignored', () => {
+    const t = new EventTarget();
+    const a = plugin(t, 'a', true);
+    fire(t, PANEL_OPEN, { id: 'b', area: 'bottom' });
+    fire(t, PANEL_OPEN, { id: 'a', area: 'bottom', restored: true });
+    assert.equal(a.coordinator.minimized, true);
+    fire(t, PANEL_CLOSE, { id: 'b', area: 'bottom' });
+    assert.deepEqual(a.calls, ['minimize', 'restore']);
+});
+
+test('restoring A from its selector makes a minimized B wait for A (no overlap when the top plugin C closes)', () => {
+    // Both registration orders: the outcome must not depend on which listener runs first.
+    for (const order of [['a', 'b', 'c'], ['c', 'b', 'a'], ['b', 'c', 'a']]) {
+        const t = new EventTarget();
+        const made: Record<string, Fake> = {};
+        for (const id of order) made[id] = plugin(t, id, id !== 'c');
+        const { a, b, c } = made;
+        const shownCount = (): number => [a, b, c].filter((p) => p.shown).length;
+        a.shown = true;
+        b.shown = false;
+        c.shown = false;
+        b.shown = true;
+        b.coordinator.opened();
+        c.shown = true;
+        c.coordinator.opened();
+        assert.equal(a.coordinator.minimized && b.coordinator.minimized, true, `${order}: A and B wait`);
+        assert.equal(shownCount(), 1);
+        // A is restored from its selector: C (no state) closes, B now waits for A.
+        a.coordinator.restoreFromSelector();
+        assert.deepEqual(c.calls, ['close'], `${order}`);
+        assert.equal(a.shown && !b.shown && !c.shown, true, `${order}: only A is shown`);
+        assert.equal(b.coordinator.minimized, true, `${order}: B stays minimized`);
+        // A closes: B restores.
+        a.shown = false;
+        a.coordinator.closed();
+        assert.deepEqual(b.calls, ['minimize', 'restore'], `${order}`);
+        assert.equal(shownCount(), 1);
+        assert.equal(b.shown, true);
+    }
+});
+
+test('chain A, B, C (all with state): every close order restores in turn and never shows two at once', () => {
+    // `away` lists the order in which the plugins go away (the user closes them, or Remove Sheet).
+    // Minimized plugins can go away too; they hand their wait on through `by`.
+    const cases: { away: string[]; restores: string[] }[] = [
+        { away: ['c', 'b', 'a'], restores: ['b', 'a'] },
+        { away: ['c', 'a', 'b'], restores: ['b'] },
+        { away: ['b', 'c', 'a'], restores: ['a'] },
+        { away: ['b', 'a', 'c'], restores: [] },
+        { away: ['a', 'b', 'c'], restores: [] },
+        { away: ['a', 'c', 'b'], restores: ['b'] },
+    ];
+    for (const { away, restores } of cases) {
+        const t = new EventTarget();
+        const a = plugin(t, 'a', true);
+        const b = plugin(t, 'b', true);
+        const c = plugin(t, 'c', true);
+        const all: Record<string, Fake> = { a, b, c };
+        const shownCount = (): number => Object.values(all).filter((p) => p.shown).length;
+        b.shown = false;
+        c.shown = false;
+        b.shown = true;
+        b.coordinator.opened();
+        c.shown = true;
+        c.coordinator.opened();
+        assert.equal(shownCount(), 1, `${away}: only c shown`);
+        assert.equal(c.shown, true);
+        const restored: string[] = [];
+        for (const id of away) {
+            const p = all[id];
+            const was = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.calls.filter((x) => x === 'restore').length]));
+            p.shown = false;
+            p.coordinator.closed();
+            for (const [k, v] of Object.entries(all)) {
+                if (v.calls.filter((x) => x === 'restore').length > was[k]) restored.push(k);
+            }
+            assert.ok(shownCount() <= 1, `${away}: after ${id} went away at most one plugin is shown`);
+        }
+        assert.deepEqual(restored, restores, `${away}`);
+    }
+});

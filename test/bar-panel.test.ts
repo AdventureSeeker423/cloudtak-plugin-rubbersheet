@@ -161,3 +161,25 @@ test('dispose stops reacting to other plugins', () => {
     assert.deepEqual(s.calls, [`add:${KEY}`]);
     assert.equal(s.ui.barHidden, false);
 });
+
+test('restoreFromSelector announces panel-open with restored: true; showBar does not', () => {
+    const target = new EventTarget();
+    const details: PanelEventDetail[] = [];
+    target.addEventListener(PANEL_OPEN, (e) => { details.push((e as CustomEvent<PanelEventDetail>).detail); });
+    const panel = createBarPanel({
+        id: 'rubber-sheet',
+        key: KEY,
+        component: {},
+        bottomBar: { add: () => {}, remove: () => {} },
+        ui: { hasSheet: true, moveMode: false, barHidden: false },
+        cancelDrag: () => {},
+        target,
+    });
+    panel.showBar();
+    target.dispatchEvent(new CustomEvent(PANEL_OPEN, { detail: { id: 'weather', area: 'bottom' } }));
+    panel.restoreFromSelector();
+    const own = details.filter((d) => d.id === 'rubber-sheet');
+    assert.equal(own.length, 2);
+    assert.equal(own[0].restored, undefined);
+    assert.equal(own[1].restored, true);
+});
