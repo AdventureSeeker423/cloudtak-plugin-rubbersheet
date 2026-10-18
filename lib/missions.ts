@@ -1,3 +1,8 @@
+// Host modules (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
+import Subscription from '../../../src/base/subscription.ts';
+import { db } from '../../../src/database.ts';
+import { apiFetch, readError } from './api.ts';
+import { DATA_SYNC_LIST } from './constants.ts';
 import type { MissionChoice } from './ui-state.ts';
 
 function roleType(role: unknown): string {
@@ -14,24 +19,42 @@ function canWriteRole(role: unknown): boolean {
     return type === 'MISSION_OWNER' || type === 'MISSION_SUBSCRIBER';
 }
 
-async function getAuthToken(): Promise<string | undefined> {
-    try {
-        const caps = localStorage.getItem('CapacitorStorage.token');
-        if (caps) return caps;
-        const plain = localStorage.getItem('token');
-        if (plain) return plain;
-    } catch {
-        // Private browsing can reject storage.
-    }
-    return undefined;
+/**
+ * Data syncs the "Add to Data Sync" picker offers. Which list is chosen by DATA_SYNC_LIST:
+ * 'subscribed' (default) is what the host Share to Data Sync shows, 'all' is the wider list
+ * from listAllWritableMissions().
+ */
+export async function listMissionsForPicker(): Promise<MissionChoice[]> {
+    if (DATA_SYNC_LIST === 'all') return listAllWritableMissions();
+    return listSubscribedMissions();
 }
 
 /**
- * Data syncs the user can attach files to — matching Files → Share to Data Sync:
- * local subscription rows with a write role (subscribed or not), merged with the
- * server mission catalog so unsubscribed-but-visible syncs still appear.
+ * Same list as the host Share to Data Sync: the locally stored data syncs where the user
+ * has a write role (Subscription.localList with role MISSION_SUBSCRIBER). The mission token
+ * is looked up so password-protected syncs still accept the upload.
  */
-export async function listWritableMissions(): Promise<MissionChoice[]> {
+export async function listSubscribedMissions(): Promise<MissionChoice[]> {
+    const list = await Subscription.localList({ role: 'MISSION_SUBSCRIBER' });
+    const missions: MissionChoice[] = [];
+    for (const mission of list) {
+        let token: string | undefined;
+        try {
+            token = (await db.subscription.get(mission.guid))?.token || undefined;
+        } catch {
+            // A missing token only matters for password-protected syncs; the upload reports that.
+        }
+        missions.push({ guid: mission.guid, name: mission.name, token });
+    }
+    return missions.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Every data sync the user may be able to attach files to: local subscription rows with a
+ * write role (subscribed or not), merged with the server mission catalog so
+ * unsubscribed-but-visible syncs still appear. This was the picker list before phase 4.
+ */
+export async function listAllWritableMissions(): Promise<MissionChoice[]> {
     const byGuid = new Map<string, MissionChoice>();
 
     for (const mission of await listLocalMissions()) {
@@ -117,21 +140,10 @@ function listLocalMissions(): Promise<MissionChoice[]> {
 }
 
 async function listServerMissions(): Promise<MissionChoice[]> {
-    const token = await getAuthToken();
-    const headers = new Headers();
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-
-    const response = await fetch(
+    const response = await apiFetch(
         '/api/marti/mission?passwordProtected=true&defaultRole=true&sort=createTime&order=desc',
-        {
-            credentials: 'same-origin',
-            headers,
-        },
     );
-    if (!response.ok) {
-        const text = (await response.text()).trim();
-        throw new Error(text || `Could not list data syncs (${response.status})`);
-    }
+    if (!response.ok) throw new Error(await readError(response, `Could not list data syncs (${response.status})`));
 
     const body = await response.json() as {
         items?: Array<{
@@ -159,8 +171,6 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
     const headers: Record<string, string> = {
         'Content-Type': file.mime,
     };
-    const token = await getAuthToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
     if (mission.token) headers.MissionAuthorization = mission.token;
 
     const body = file.bytes.buffer.slice(
@@ -168,22 +178,11 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
         file.bytes.byteOffset + file.bytes.byteLength,
     ) as ArrayBuffer;
 
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
         method: 'POST',
-        credentials: 'same-origin',
         headers,
         body,
     });
 
-    if (!response.ok) {
-        const text = (await response.text()).trim();
-        let message = text || `Upload failed (${response.status})`;
-        try {
-            const json = JSON.parse(text) as { message?: string };
-            if (json.message) message = json.message;
-        } catch {
-            // not JSON
-        }
-        throw new Error(message);
-    }
+    if (!response.ok) throw new Error(await readError(response, `Upload failed (${response.status})`));
 }

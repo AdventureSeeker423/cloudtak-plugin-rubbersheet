@@ -1,249 +1,338 @@
 <template>
-    <ImageEditor
-        v-if='editing && editSource && editPristine'
-        :source='editSource'
-        :pristine='editPristine'
-        :history='editHistory'
-        @apply='onEditApply'
-        @cancel='onEditCancel'
-    />
     <div
-        v-else
-        class='p-3'
+        class='rubber-pane d-flex flex-column gap-2 py-2'
     >
-        <p class='text-secondary mb-3'>
-            Drag a corner to warp the sheet. Hold Shift to scale about the
-            opposite corner, or Alt (or Shift+Alt) to scale from the center —
-            press or release mid-drag to switch modes. Drag the rotate icon to
-            rotate, or drag the image to move it. Ctrl/Cmd+Z undoes a transform;
-            Ctrl+Y or Ctrl/Cmd+Shift+Z redoes.
-            Use Edit Image for wand, eraser, and facility icon stamps.
-        </p>
+        <TablerInlineAlert
+            v-if='sheetUi.error'
+            severity='danger'
+            title='Something went wrong'
+            :description='sheetUi.error'
+        />
+        <template v-if='sheetUi.success'>
+            <TablerInlineAlert
+                severity='success'
+                :title='sheetUi.success'
+            />
+            <div class='d-flex justify-content-end'>
+                <TablerButton
+                    class='rubber-action'
+                    title='Close and keep the sheet on the map'
+                    @click='onClose'
+                >
+                    Close
+                </TablerButton>
+            </div>
+        </template>
 
-        <label
-            class='form-label'
-            for='rubber-sheet-file'
-        >Image or PDF</label>
+        <div
+            class='visually-hidden'
+            role='status'
+            aria-live='polite'
+        >
+            {{ sheetUi.busy ? (sheetUi.status || 'Working…') : '' }}
+        </div>
+        <TablerLoading
+            v-if='sheetUi.busy'
+            :desc='sheetUi.status || "Working…"'
+        />
+
         <input
-            id='rubber-sheet-file'
-            class='form-control mb-3'
+            ref='fileInput'
+            class='d-none'
             type='file'
             accept='image/png,image/jpeg,image/webp,image/gif,application/pdf,.png,.jpg,.jpeg,.webp,.gif,.pdf'
-            :disabled='sheetUi.busy'
             @change='onFile'
         >
 
-        <PdfPagePicker v-if='sheetUi.pageThumbs' />
-
-        <button
-            v-else-if='sheetUi.pageCount > 1 && sheetUi.hasSheet'
-            type='button'
-            class='btn btn-outline-secondary mb-3'
-            :disabled='sheetUi.busy'
-            @click='openPagePicker'
-        >
-            Change PDF page ({{ sheetUi.page }} of {{ sheetUi.pageCount }})
-        </button>
-
-        <button
-            v-if='sheetUi.hasSheet'
-            type='button'
-            class='btn btn-outline-primary mb-3 w-100'
-            :disabled='sheetUi.busy'
-            @click='openEditor'
-        >
-            Edit Image
-        </button>
-
-        <label
-            class='form-label'
-            for='rubber-sheet-name'
-        >Name</label>
-        <input
-            id='rubber-sheet-name'
-            class='form-control mb-3'
-            type='text'
-            :value='sheetUi.name'
-            :disabled='sheetUi.busy'
-            @input='onName'
-        >
-
-        <label
-            class='form-label'
-            for='rubber-sheet-format'
-        >Export File Type</label>
-        <select
-            id='rubber-sheet-format'
-            class='form-select mb-3'
-            :value='sheetUi.exportType'
-            :disabled='sheetUi.busy'
-            @change='onFormat'
-        >
-            <option
-                value=''
-                disabled
-            >
-                Select a format
-            </option>
-            <option value='kmz'>
-                KMZ
-            </option>
-            <option value='geotiff'>
-                GeoTIFF
-            </option>
-            <option value='geopdf'>
-                GeoPDF
-            </option>
-            <option value='zip'>
-                Zipped bundle (all included)
-            </option>
-        </select>
-
-        <div class='d-grid gap-2'>
-            <button
-                type='button'
-                class='btn btn-primary'
-                :disabled='!canExport'
-                @click='onDownload'
-            >
-                Download
-            </button>
-            <button
-                type='button'
-                class='btn btn-success'
-                :disabled='!canExport'
-                @click='openMissionPicker'
-            >
-                Upload to Data Sync
-            </button>
-            <button
-                type='button'
-                class='btn btn-outline-primary'
-                :disabled='!sheetUi.hasSheet || sheetUi.busy'
-                @click='onAddOverlay'
-            >
-                Add to Map as Overlay
-            </button>
-            <button
-                type='button'
-                class='btn btn-outline-secondary'
-                :disabled='!sheetUi.hasSheet || sheetUi.busy'
-                @click='clearSheet'
-            >
-                Remove
-            </button>
-        </div>
-
-        <p
-            v-if='sheetUi.error'
-            class='text-danger mt-3 mb-0'
-        >
-            {{ sheetUi.error }}
-        </p>
-        <p
-            v-if='sheetUi.status'
-            class='text-secondary mt-3 mb-0'
-        >
-            {{ sheetUi.status }}
-        </p>
-
         <div
-            v-if='sheetUi.missions'
-            class='mt-3'
+            v-if='!sheetUi.hasSheet && !sheetUi.busy'
+            class='d-flex flex-column gap-3 px-2'
         >
-            <p
-                v-if='sheetUi.missions.length === 0'
-                class='mb-2'
-            >
-                No data syncs available to upload to.
+            <p class='text-secondary mb-0'>
+                Place an image or PDF on the map and align it by dragging its corners.
             </p>
-            <template v-else>
-                <p class='text-secondary small mb-2'>
-                    Choose a data sync (same list as Share → Data Sync).
-                </p>
-                <div class='d-grid gap-2'>
-                    <button
-                        v-for='mission in sheetUi.missions'
-                        :key='mission.guid'
-                        type='button'
-                        class='btn btn-outline-primary'
-                        :disabled='sheetUi.busy'
-                        @click='onUpload(mission)'
-                    >
-                        {{ mission.name }}
-                    </button>
-                </div>
-            </template>
-            <button
-                type='button'
-                class='btn btn-link px-0 mt-2'
-                :disabled='sheetUi.busy'
-                @click='closeMissionPicker'
+            <TablerButton
+                class='btn-primary rubber-action w-100'
+                title='Choose an image or PDF'
+                @click='chooseFile'
             >
-                Cancel
-            </button>
+                <IconUpload
+                    :size='20'
+                    stroke='1'
+                    class='me-2'
+                />
+                Choose image or PDF
+            </TablerButton>
         </div>
+
+        <template v-if='sheetUi.hasSheet'>
+            <SlideDownHeader
+                v-model='adjustOpen'
+                label='Adjust'
+            >
+                <template #icon>
+                    <IconAdjustments
+                        :size='20'
+                        stroke='1'
+                        class='me-2'
+                    />
+                </template>
+                <div class='d-flex flex-column gap-2 px-2 pt-2'>
+                    <div class='form-label mb-0'>
+                        Corner drag
+                    </div>
+                    <WarpModeStrip />
+                    <p
+                        v-if='touchWording'
+                        class='text-secondary small mb-0'
+                    >
+                        The Adjust bar on the map has Undo, Redo, Move and Opacity.
+                    </p>
+                    <p
+                        v-else
+                        class='text-secondary small mb-0'
+                    >
+                        Opacity is on the bar at the bottom of the map. Undo and Redo are in the header.
+                    </p>
+                </div>
+            </SlideDownHeader>
+
+            <SlideDownHeader
+                v-model='imageOpen'
+                label='Image'
+            >
+                <template #icon>
+                    <IconPhoto
+                        :size='20'
+                        stroke='1'
+                        class='me-2'
+                    />
+                </template>
+                <div class='d-flex flex-column gap-2 px-2 pt-2'>
+                    <TablerInput
+                        :model-value='sheetUi.name'
+                        label='Name'
+                        :disabled='sheetUi.busy'
+                        @update:model-value='onName'
+                    />
+                    <TablerButton
+                        ref='editButton'
+                        class='btn-outline-primary rubber-action w-100'
+                        title='Edit the image'
+                        :disabled='sheetUi.busy'
+                        @click='openEditor'
+                    >
+                        <IconPhotoEdit
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Edit Image
+                    </TablerButton>
+                    <TablerButton
+                        v-if='sheetUi.pageCount > 1'
+                        class='btn-outline-secondary rubber-action w-100'
+                        title='Choose another page of the PDF'
+                        :disabled='sheetUi.busy'
+                        @click='openPagePicker'
+                    >
+                        <IconFileTypePdf
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Change PDF page ({{ sheetUi.page }} of {{ sheetUi.pageCount }})
+                    </TablerButton>
+                    <TablerButton
+                        class='btn-outline-secondary rubber-action w-100'
+                        title='Choose a different image or PDF'
+                        :disabled='sheetUi.busy'
+                        @click='chooseFile'
+                    >
+                        <IconReplace
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Choose a different file
+                    </TablerButton>
+                </div>
+            </SlideDownHeader>
+
+            <SlideDownHeader
+                v-model='exportOpen'
+                label='Export'
+            >
+                <template #icon>
+                    <IconFileExport
+                        :size='20'
+                        stroke='1'
+                        class='me-2'
+                    />
+                </template>
+                <div class='d-flex flex-column gap-2 px-2 pt-2'>
+                    <div class='form-label mb-0'>
+                        Format
+                    </div>
+                    <TablerPillGroup
+                        class='rubber-format'
+                        :model-value='sheetUi.exportType'
+                        :options='formats'
+                        :rounded='false'
+                        size='default'
+                        padding=''
+                        name='rubber-sheet-format'
+                        :disabled='sheetUi.busy'
+                        @update:model-value='onFormat'
+                    />
+                    <p
+                        class='text-secondary small mb-1'
+                        aria-live='polite'
+                    >
+                        {{ formatHint }}
+                    </p>
+                    <TablerButton
+                        class='btn-primary rubber-action w-100'
+                        title='Download the export'
+                        :disabled='!canExport'
+                        @click='onDownload'
+                    >
+                        <IconDownload
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Download
+                    </TablerButton>
+                    <TablerButton
+                        class='btn-outline-primary rubber-action w-100'
+                        title='Add the export to a Data Sync'
+                        :disabled='!canExport'
+                        @click='openMissionPicker'
+                    >
+                        <IconCloudPin
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Add to Data Sync
+                    </TablerButton>
+                    <TablerButton
+                        class='btn-outline-primary rubber-action w-100'
+                        title='Add the sheet to the map as an overlay'
+                        :disabled='!sheetUi.hasSheet || sheetUi.busy'
+                        @click='onAddOverlay'
+                    >
+                        <IconMapPlus
+                            :size='20'
+                            stroke='1'
+                            class='me-2'
+                        />
+                        Add to Map as Overlay
+                    </TablerButton>
+                </div>
+            </SlideDownHeader>
+        </template>
+
+        <SlideDownHeader
+            v-model='helpOpen'
+            label='How it works'
+        >
+            <template #icon>
+                <IconHelp
+                    :size='20'
+                    stroke='1'
+                    class='me-2'
+                />
+            </template>
+            <ul class='text-secondary small ps-4 pe-2 pt-2 mb-0'>
+                <template v-if='touchWording'>
+                    <li>Drag a corner handle to warp the sheet and the round handle to rotate it.</li>
+                    <li>Pick a corner drag mode to scale from the opposite corner or from the center.</li>
+                    <li>Tap Move on the map bar to drag the whole sheet with one finger. Otherwise one finger pans the map.</li>
+                    <li>Two fingers pan and zoom the map.</li>
+                </template>
+                <template v-else>
+                    <li>Drag a corner to warp the sheet. Hold Shift to scale about the opposite corner or Alt to scale about the center. Press or release mid-drag to switch.</li>
+                    <li>Drag the rotate handle to rotate, or drag the image to move it.</li>
+                    <li>Undo with Ctrl/Cmd+Z and redo with Ctrl+Y.</li>
+                </template>
+                <li>Edit Image erases areas and adds facility icons.</li>
+            </ul>
+        </SlideDownHeader>
+
+        <TablerButton
+            v-if='sheetUi.hasSheet'
+            class='btn-outline-danger rubber-action w-100 mt-2'
+            title='Remove the sheet from the map'
+            :disabled='sheetUi.busy'
+            @click='confirmRemove = true'
+        >
+            <IconTrash
+                :size='20'
+                stroke='1'
+                class='me-2'
+            />
+            Remove Sheet
+        </TablerButton>
     </div>
 
-    <Teleport to='body'>
-        <div
-            v-if='donePrompt'
-            class='rubber-done-backdrop'
-            @click.self='keepEditing'
-        >
-            <div
-                class='rubber-done-modal'
-                role='alertdialog'
-                aria-labelledby='rubber-done-title'
-                aria-describedby='rubber-done-body'
-            >
-                <h2
-                    id='rubber-done-title'
-                    class='rubber-done-title'
-                >
-                    {{ donePrompt.title }}
-                </h2>
-                <p
-                    id='rubber-done-body'
-                    class='rubber-done-body'
-                >
-                    {{ donePrompt.body }}
-                </p>
-                <div class='rubber-done-actions'>
-                    <button
-                        type='button'
-                        class='btn btn-outline-secondary'
-                        @click='keepEditing'
-                    >
-                        Keep editing
-                    </button>
-                    <button
-                        type='button'
-                        class='btn btn-primary'
-                        @click='exitRubberSheet'
-                    >
-                        Close Rubber Sheet
-                    </button>
-                </div>
-            </div>
-        </div>
-    </Teleport>
+    <PdfPagePicker v-if='sheetUi.pageThumbs' />
+
+    <DataSyncPicker
+        v-if='sheetUi.pickerOpen'
+        @close='closeMissionPicker'
+        @confirm='onUpload'
+    />
+
+    <RemoveSheetConfirm
+        v-if='confirmRemove'
+        @close='confirmRemove = false'
+        @confirm='onRemove'
+    />
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
-import ImageEditor from './ImageEditor.vue';
+import {
+    TablerButton,
+    TablerInlineAlert,
+    TablerInput,
+    TablerLoading,
+    TablerPillGroup,
+} from '@tak-ps/vue-tabler';
+import {
+    IconAdjustments,
+    IconCloudPin,
+    IconDownload,
+    IconFileExport,
+    IconFileTypePdf,
+    IconHelp,
+    IconMapPlus,
+    IconPhoto,
+    IconPhotoEdit,
+    IconReplace,
+    IconTrash,
+    IconUpload,
+} from '@tabler/icons-vue';
+// Host modules (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
+import SlideDownHeader from '../../../src/components/CloudTAK/util/SlideDownHeader.vue';
+import { useAppStore } from '../../../src/stores/app.ts';
+import DataSyncPicker from './DataSyncPicker.vue';
+import { touchWording as useTouchWording } from './device.ts';
 import PdfPagePicker from './PdfPagePicker.vue';
-import type { EditHistorySnapshot } from './edit-history.ts';
+import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
+import WarpModeStrip from './WarpModeStrip.vue';
+import { EDIT_ROUTE_NAME, FORMAT_KEY } from './constants.ts';
+import { beginEditSession, returnFocus } from './edit-session.ts';
+import { parseExportType, saveExportType } from './export-type.ts';
 import {
     addCurrentAsOverlay,
-    applyEditedCanvas,
     bind,
     clearSheet,
     closeMissionPicker,
     downloadCurrent,
-    getEditSession,
     loadUserFile,
     openMissionPicker,
     openPagePicker,
@@ -255,97 +344,99 @@ const props = defineProps<{
     api: PluginAPI;
 }>();
 
-const editing = ref(false);
-const editSource = shallowRef<HTMLCanvasElement | null>(null);
-const editPristine = shallowRef<Uint8Array | null>(null);
-const editHistory = shallowRef<EditHistorySnapshot | null>(null);
+const appStore = useAppStore();
 
-type DonePrompt = {
-    title: string;
-    body: string;
+const fileInput = ref<HTMLInputElement | null>(null);
+const confirmRemove = ref(false);
+
+// First section open; on phones the others start collapsed to keep the pane short.
+// The choice lives in sheetUi so it survives the pane being rebuilt after the image editor route.
+function section(key: keyof typeof sheetUi.sections, defaultOpen: () => boolean) {
+    return computed({
+        get: () => sheetUi.sections[key] ?? defaultOpen(),
+        set: (value: boolean) => {
+            sheetUi.sections[key] = value;
+        },
+    });
+}
+const adjustOpen = section('adjust', () => true);
+const imageOpen = section('image', () => !appStore.isMobileDetected);
+const exportOpen = section('export', () => !appStore.isMobileDetected);
+const helpOpen = section('help', () => false);
+
+/** Keyboard keys are never mentioned on a touch screen or a phone-sized window. */
+const touchWording = computed(() => useTouchWording(appStore.isMobileDetected));
+
+const formats = [
+    { value: 'kmz', label: 'KMZ' },
+    { value: 'geotiff', label: 'GeoTIFF' },
+    { value: 'geopdf', label: 'GeoPDF' },
+    { value: 'zip', label: 'ZIP' },
+];
+
+const formatHints: Record<string, string> = {
+    kmz: 'Image overlay for TAK clients and Google Earth.',
+    geotiff: 'GIS raster file with its map position.',
+    geopdf: 'PDF with its map position, for GIS tools and printing.',
+    zip: 'KMZ, GeoTIFF and GeoPDF together in one file.',
 };
 
-const donePrompt = ref<DonePrompt | null>(null);
+const formatHint = computed(() => formatHints[sheetUi.exportType] ?? '');
 
 const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
 });
 
+const editButton = ref<{ $el: HTMLElement } | null>(null);
+
 onMounted(() => {
     bind(props.api);
+    // Opening the pane brings the handles back after Done on the Adjust bar.
+    sheetUi.adjusting = true;
+    if (returnFocus.edit) {
+        // Back from the editor: keyboard focus goes to the button that opened it.
+        returnFocus.edit = false;
+        // After the host menu modal has taken focus for itself.
+        setTimeout(() => editButton.value?.$el?.focus(), 150);
+    }
 });
 
+/** The editor is its own route, so Back (browser or hardware) leaves it and returns to this pane. */
 function openEditor(): void {
-    const session = getEditSession();
-    if (!session) return;
-    editSource.value = session.source;
-    editPristine.value = session.pristine;
-    editHistory.value = session.history;
-    editing.value = true;
+    if (!beginEditSession()) return;
     sheetUi.error = '';
+    sheetUi.success = '';
     sheetUi.status = '';
+    returnFocus.edit = true;
+    const { router } = props.api;
+    void router.push({ name: EDIT_ROUTE_NAME });
 }
 
-function onEditApply(canvas: HTMLCanvasElement, history: EditHistorySnapshot): void {
-    try {
-        applyEditedCanvas(canvas, history);
-        sheetUi.status = 'Image edits applied';
-    } catch (err) {
-        sheetUi.error = err instanceof Error ? err.message : String(err);
-    }
-    editing.value = false;
-    editSource.value = null;
-    editPristine.value = null;
-    editHistory.value = null;
+function onRemove(): void {
+    confirmRemove.value = false;
+    void clearSheet();
 }
 
-function onEditCancel(): void {
-    editing.value = false;
-    editSource.value = null;
-    editPristine.value = null;
-    editHistory.value = null;
-}
-
-function showDonePrompt(title: string, body: string): void {
-    donePrompt.value = { title, body };
-}
-
-function keepEditing(): void {
-    donePrompt.value = null;
-}
-
-async function exitRubberSheet(): Promise<void> {
-    donePrompt.value = null;
-    await clearSheet();
+/** Closes the pane and keeps the sheet on the map (same as the host Close button). */
+function onClose(): void {
     const { router } = props.api;
     void router.push('/');
 }
 
-async function onDownload(): Promise<void> {
-    const ok = await downloadCurrent();
-    if (!ok) return;
-    showDonePrompt(
-        'Download complete',
-        'Your export is saved. Keep working on this sheet, or close Rubber Sheet when you are finished.',
-    );
+function chooseFile(): void {
+    fileInput.value?.click();
 }
 
-async function onUpload(mission: MissionChoice): Promise<void> {
-    const ok = await uploadCurrent(mission);
-    if (!ok) return;
-    showDonePrompt(
-        'Upload complete',
-        `It's in ${mission.name}. Keep refining this sheet, or close Rubber Sheet for now.`,
-    );
+function onDownload(): void {
+    void downloadCurrent();
 }
 
-async function onAddOverlay(): Promise<void> {
-    const ok = await addCurrentAsOverlay();
-    if (!ok) return;
-    showDonePrompt(
-        'Overlay added',
-        'Your sheet is on the map as an overlay. Keep fine-tuning the live warp, or close Rubber Sheet when you are done.',
-    );
+function onUpload(missions: MissionChoice[]): void {
+    void uploadCurrent(missions);
+}
+
+function onAddOverlay(): void {
+    void addCurrentAsOverlay();
 }
 
 function onFile(event: Event): void {
@@ -356,62 +447,42 @@ function onFile(event: Event): void {
     if (file) void loadUserFile(file);
 }
 
-function onName(event: Event): void {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    sheetUi.name = target.value;
+function onName(value: string | number): void {
+    sheetUi.name = String(value);
 }
 
-function onFormat(event: Event): void {
-    const target = event.target;
-    if (!(target instanceof HTMLSelectElement)) return;
-    const value = target.value;
-    if (value === '' || value === 'kmz' || value === 'geotiff' || value === 'geopdf' || value === 'zip') {
-        sheetUi.exportType = value;
-    }
+function onFormat(value: string): void {
+    const type = parseExportType(value);
+    if (!type) return;
+    sheetUi.exportType = type;
+    saveExportType(typeof localStorage === 'undefined' ? undefined : localStorage, FORMAT_KEY, type);
 }
 </script>
 
 <style scoped>
-.rubber-done-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 10060;
-    display: flex;
+@media (prefers-reduced-motion: reduce) {
+    .rubber-pane,
+    .rubber-pane :deep(*) {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+.rubber-action {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
-    background: rgba(12, 14, 18, 0.55);
 }
 
-.rubber-done-modal {
-    width: min(100%, 420px);
-    padding: 22px 22px 18px;
-    border-radius: 12px;
-    background: #212529;
-    color: #f8f9fa;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+/* Four labels must fit a 360 px phone without pushing the pane wider. */
+.rubber-format :deep(.btn) {
+    min-width: 0;
+    padding-inline: 0.4rem;
 }
 
-.rubber-done-title {
-    margin: 0 0 8px;
-    font-size: 1.15rem;
-    font-weight: 700;
-    line-height: 1.3;
-}
-
-.rubber-done-body {
-    margin: 0 0 18px;
-    font-size: 0.95rem;
-    line-height: 1.45;
-    color: #adb5bd;
-}
-
-.rubber-done-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
+@media (pointer: coarse) {
+    .rubber-action,
+    :deep(.btn) {
+        min-height: 44px;
+    }
 }
 </style>

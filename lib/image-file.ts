@@ -1,8 +1,8 @@
-import { MAX_IMAGE_SIDE } from './constants.ts';
+import { maxImageSide } from './device.ts';
 import type { Raster } from './warp.ts';
 
 export function fitCanvas(source: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
-    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(width, height));
+    const scale = Math.min(1, maxImageSide() / Math.max(width, height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(width * scale));
     canvas.height = Math.max(1, Math.round(height * scale));
@@ -28,7 +28,8 @@ export function rasterFromCanvas(canvas: HTMLCanvasElement): Raster {
     return {
         width: canvas.width,
         height: canvas.height,
-        rgba: new Uint8Array(image.data),
+        // The ImageData is a fresh copy, so its buffer can be used as is.
+        rgba: new Uint8Array(image.data.buffer),
     };
 }
 

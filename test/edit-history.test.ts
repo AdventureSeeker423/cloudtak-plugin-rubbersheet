@@ -98,3 +98,76 @@ test('mapFrames rewrites past and future snapshots', () => {
     assert.equal(history.redo(pixels), true);
     assert.equal(pixels[0], 9);
 });
+test('rollback restores the pre-edit buffer without creating redo', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    assert.equal(history.rollback(pixels), true);
+    assert.deepEqual(pixels, buf(1));
+    assert.equal(history.canRedo, false);
+    assert.equal(history.canUndo, false);
+});
+test('rollback can restore the redo stack that push cleared', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.undo(pixels);
+    assert.equal(history.redoCount, 1);
+    const future = history.exportSnapshot({ copy: false }).future;
+    history.push(pixels);
+    assert.equal(history.canRedo, false);
+    pixels.fill(7);
+    assert.equal(history.rollback(pixels, future), true);
+    assert.deepEqual(pixels, buf(1));
+    assert.equal(history.redoCount, 1);
+    assert.equal(history.redo(pixels), true);
+    assert.deepEqual(pixels, buf(2));
+});
+test('rollback only drops the newest snapshot', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.push(pixels);
+    pixels.fill(3);
+    assert.equal(history.rollback(pixels), true);
+    assert.deepEqual(pixels, buf(2));
+    assert.equal(history.canUndo, true);
+    assert.equal(history.undoCount, 1);
+});
+test('rollback with nothing to roll back or a size mismatch changes nothing', () => {
+    const history = new EditHistory();
+    const pixels = buf(5);
+    assert.equal(history.rollback(pixels), false);
+    history.push(pixels);
+    assert.equal(history.rollback(buf(0, 4)), false);
+    assert.equal(history.undoCount, 1);
+    assert.deepEqual(pixels, buf(5));
+});
+test('a smaller cap trims undo at that cap', () => {
+    const history = new EditHistory(10);
+    const pixels = buf(0);
+    for (let i = 0; i < 15; i++) {
+        history.push(pixels);
+        pixels[0] = i + 1;
+    }
+    assert.equal(history.undoCount, 10);
+    while (history.undo(pixels));
+    for (let i = 0; i < 12; i++) history.redo(pixels);
+    assert.equal(history.undoCount, 10);
+});
+test('importSnapshot trims to the instance cap and can take ownership of the frames', () => {
+    const frames = Array.from({ length: 14 }, (_, i) => buf(i));
+    const snapshot = { past: frames, future: [] };
+    const history = new EditHistory(10);
+    history.importSnapshot(snapshot, { copy: false });
+    assert.equal(history.undoCount, 10);
+    const out = history.exportSnapshot({ copy: false });
+    assert.equal(out.past[9], frames[13]);
+    const copied = new EditHistory(10);
+    copied.importSnapshot(snapshot);
+    assert.notEqual(copied.exportSnapshot().past[9], frames[13]);
+    assert.deepEqual(copied.exportSnapshot().past[9], frames[13]);
+});

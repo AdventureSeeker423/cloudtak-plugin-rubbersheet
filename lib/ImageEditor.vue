@@ -5,10 +5,83 @@
             class='ie-root'
             tabindex='0'
             role='dialog'
+            aria-modal='true'
             aria-label='Image editor'
             @contextmenu.prevent
         >
-            <header class='ie-topbar'>
+            <header
+                v-if='compact'
+                class='ie-topbar ie-topbar-compact'
+            >
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Cancel'
+                    aria-label='Cancel'
+                    @click='onCancelClick'
+                >
+                    <IconX
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Undo'
+                    aria-label='Undo'
+                    :disabled='!canUndo'
+                    @click='doUndo'
+                >
+                    <IconArrowBackUp
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Redo'
+                    aria-label='Redo'
+                    :disabled='!canRedo'
+                    @click='doRedo'
+                >
+                    <IconArrowForwardUp
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='More'
+                    aria-label='More'
+                    aria-haspopup='menu'
+                    :aria-expanded='moreOpen'
+                    @click='moreOpen = !moreOpen'
+                >
+                    <IconDots
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square ie-btn-save ie-top-save'
+                    title='Save'
+                    aria-label='Save'
+                    @click='emitApply'
+                >
+                    <IconCheck
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+            </header>
+            <header
+                v-else
+                class='ie-topbar'
+            >
                 <div class='ie-brand'>
                     <span class='ie-brand-mark' />
                     <span>Edit Image</span>
@@ -18,7 +91,7 @@
                         type='button'
                         class='ie-btn ie-btn-icon'
                         :disabled='!canUndo'
-                        title='Undo (Ctrl+Z)'
+                        :title='undoTitle'
                         @click='doUndo'
                     >
                         <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -33,7 +106,7 @@
                         type='button'
                         class='ie-btn ie-btn-icon'
                         :disabled='!canRedo'
-                        title='Redo (Ctrl+Y)'
+                        :title='redoTitle'
                         @click='doRedo'
                     >
                         <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -58,29 +131,44 @@
                     <button
                         type='button'
                         class='ie-btn'
-                        @click='emit("cancel")'
+                        @click='onCancelClick'
                     >
-                        Cancel Changes
+                        Cancel
                     </button>
                     <button
                         type='button'
                         class='ie-btn ie-btn-save'
                         @click='emitApply'
                     >
-                        Save Changes
+                        Save
                     </button>
                 </div>
             </header>
 
             <div
                 class='ie-body'
-                :style='bodyStyle'
+                :style='compact ? undefined : bodyStyle'
             >
                 <aside class='ie-tools'>
                     <button
                         type='button'
                         class='ie-tool'
+                        :class='{ active: tool === "hand" }'
+                        :aria-pressed='tool === "hand"'
+                        title='Hand — drag to pan'
+                        @click='setTool("hand")'
+                    >
+                        <IconHandStop
+                            :size='20'
+                            stroke='1.5'
+                        />
+                        <span>Hand</span>
+                    </button>
+                    <button
+                        type='button'
+                        class='ie-tool'
                         :class='{ active: tool === "wand" }'
+                        :aria-pressed='tool === "wand"'
                         title='Magic Wand — select connected color'
                         @click='setTool("wand")'
                     >
@@ -96,6 +184,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "rect" }'
+                        :aria-pressed='tool === "rect"'
                         title='Rectangle Marquee — drag to select'
                         @click='setTool("rect")'
                     >
@@ -114,6 +203,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "eraser" }'
+                        :aria-pressed='tool === "eraser"'
                         title='Eraser — paint transparency'
                         @click='setTool("eraser")'
                     >
@@ -129,6 +219,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "color" }'
+                        :aria-pressed='tool === "color"'
                         title='Selective Color — select every matching color in the image'
                         @click='setTool("color")'
                     >
@@ -144,6 +235,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "stamp" }'
+                        :aria-pressed='tool === "stamp"'
                         title='Icons — place or remove facility markers'
                         @click='setTool("stamp")'
                     >
@@ -161,14 +253,66 @@
                     ref='viewport'
                     class='ie-view'
                     :class='cursorClass'
+                    :data-ie-scale='scale'
+                    :data-ie-pan-x='panX'
+                    :data-ie-pan-y='panY'
+                    :data-ie-stamps='stampCount'
+                    :data-ie-ghost='pendingStamp ? `${Math.round(pendingStamp.x)},${Math.round(pendingStamp.y)}` : undefined'
                     @wheel.prevent='onWheel'
                     @pointerdown='onPointerDown'
                     @pointermove='onPointerMove'
                     @pointerup='onPointerUp'
-                    @pointercancel='onPointerUp'
+                    @pointercancel='onPointerCancel'
+                    @lostpointercapture='onLostPointerCapture'
                     @pointerleave='onPointerLeave'
                 >
                     <canvas ref='canvasEl' />
+                    <div
+                        class='ie-zoom'
+                        role='group'
+                        aria-label='Zoom'
+                        @pointerdown.stop
+                        @wheel.stop
+                    >
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Zoom in'
+                            aria-label='Zoom in'
+                            :disabled='scale >= MAX_SCALE'
+                            @click='zoomBy(ZOOM_STEP)'
+                        >
+                            <IconZoomIn
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Zoom out'
+                            aria-label='Zoom out'
+                            :disabled='scale <= MIN_SCALE'
+                            @click='zoomBy(1 / ZOOM_STEP)'
+                        >
+                            <IconZoomOut
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-zoom-btn'
+                            title='Fit to screen'
+                            aria-label='Fit to screen'
+                            @click='fitView'
+                        >
+                            <IconArrowsMaximize
+                                :size='20'
+                                stroke='1.5'
+                            />
+                        </button>
+                    </div>
                     <div
                         v-if='hasSelection'
                         class='ie-selection-bar'
@@ -192,7 +336,7 @@
                         <button
                             type='button'
                             class='ie-btn ie-btn-icon'
-                            title='Deselect (Esc / Ctrl+D)'
+                            :title='deselectTitle'
                             @click='clearSelection'
                         >
                             <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -204,13 +348,95 @@
                             Deselect
                         </button>
                     </div>
+                    <div
+                        v-if='pendingStamp || selectedStamp'
+                        class='ie-selection-bar'
+                        role='group'
+                        aria-label='Icon actions'
+                        @pointerdown.stop
+                        @wheel.stop
+                    >
+                        <template v-if='pendingStamp'>
+                            <button
+                                type='button'
+                                class='ie-btn ie-btn-icon ie-btn-save ie-bar-btn'
+                                title='Place the icon here'
+                                @click='commitPendingStamp'
+                            >
+                                <IconCheck
+                                    :size='20'
+                                    stroke='1.5'
+                                />
+                                Place
+                            </button>
+                            <button
+                                type='button'
+                                class='ie-btn ie-btn-icon ie-bar-btn'
+                                title='Discard the icon'
+                                @click='discardPendingStamp'
+                            >
+                                <IconX
+                                    :size='20'
+                                    stroke='1.5'
+                                />
+                                Discard
+                            </button>
+                        </template>
+                        <button
+                            v-else
+                            type='button'
+                            class='ie-btn ie-btn-icon ie-btn-danger ie-bar-btn'
+                            title='Remove the selected icon'
+                            @click='removeSelectedStamp'
+                        >
+                            <IconTrash
+                                :size='20'
+                                stroke='1.5'
+                            />
+                            Remove icon
+                        </button>
+                    </div>
                 </div>
 
                 <aside
                     class='ie-options'
-                    :class='{ "ie-options-wide": tool === "stamp" }'
+                    :class='{
+                        "ie-options-wide": tool === "stamp",
+                        "ie-options-collapsed": compact && !optionsOpen,
+                    }'
                 >
-                    <template v-if='tool === "wand"'>
+                    <button
+                        v-if='compact'
+                        type='button'
+                        class='ie-sheet-head'
+                        :aria-expanded='optionsOpen'
+                        @click='optionsOpen = !optionsOpen'
+                    >
+                        <span>{{ toolLabel }} options</span>
+                        <IconChevronDown
+                            v-if='optionsOpen'
+                            :size='24'
+                            stroke='1.5'
+                        />
+                        <IconChevronUp
+                            v-else
+                            :size='24'
+                            stroke='1.5'
+                        />
+                    </button>
+                    <p class='ie-hint ie-tool-desc'>
+                        {{ toolDescription }}
+                    </p>
+                    <template v-if='tool === "hand"'>
+                        <div class='ie-opt-label'>
+                            Pan
+                        </div>
+                        <p class='ie-hint'>
+                            <span class='ie-fine-hint'>Drag to pan.</span>
+                            <span class='ie-touch-hint'>Drag to pan. Pinch to zoom. Double-tap to fit.</span>
+                        </p>
+                    </template>
+                    <template v-else-if='tool === "wand"'>
                         <div class='ie-opt-label'>Match range</div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
@@ -222,16 +448,63 @@
                             min='0'
                             max='80'
                             v-model.number='fuzziness'
+                            aria-label='Match range'
                             title='How far from the clicked color still counts as a match'
                         >
+                        <div class='ie-opt-label'>
+                            Selection
+                        </div>
+                        <div
+                            class='ie-seg'
+                            role='group'
+                            aria-label='Selection mode'
+                        >
+                            <button
+                                v-for='option in selectionModeOptions'
+                                :key='option.value'
+                                type='button'
+                                class='ie-seg-btn'
+                                :class='{ active: selectionMode === option.value }'
+                                :aria-pressed='selectionMode === option.value'
+                                @click='selectionMode = option.value'
+                            >
+                                {{ option.label }}
+                            </button>
+                        </div>
                         <p class='ie-hint'>
-                            Click to select. Shift add · Ctrl subtract. Then Delete.
+                            <span class='ie-fine-hint'>Click to select. </span>
+                            <span class='ie-touch-hint'>Tap to select. Two fingers pan and zoom. </span>
+                            <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
+                            Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "rect"'>
                         <div class='ie-opt-label'>Rectangle</div>
+                        <div class='ie-opt-label'>
+                            Selection
+                        </div>
+                        <div
+                            class='ie-seg'
+                            role='group'
+                            aria-label='Selection mode'
+                        >
+                            <button
+                                v-for='option in selectionModeOptions'
+                                :key='option.value'
+                                type='button'
+                                class='ie-seg-btn'
+                                :class='{ active: selectionMode === option.value }'
+                                :aria-pressed='selectionMode === option.value'
+                                @click='selectionMode = option.value'
+                            >
+                                {{ option.label }}
+                            </button>
+                        </div>
                         <p class='ie-hint'>
-                            Drag to select. Shift add · Ctrl subtract. Then Delete.
+                            Drag to select.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
+                            <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
+                            Then Delete.
                         </p>
                     </template>
                     <template v-else-if='tool === "color"'>
@@ -241,7 +514,8 @@
                                 class='ie-swatch'
                                 :class='{ empty: !hasColorTarget }'
                                 :style='hasColorTarget ? { background: targetColorCss } : undefined'
-                                :title='hasColorTarget ? "Current target" : "Click the image to pick"'
+                                role='img'
+                                :aria-label='hasColorTarget ? `Target color ${targetColorCss}` : "No target color picked yet"'
                             />
                             <span class='ie-swatch-caption'>
                                 {{ hasColorTarget ? targetColorCss : 'Click image to pick' }}
@@ -259,10 +533,12 @@
                             max='80'
                             v-model.number='fuzziness'
                             :disabled='!hasColorTarget'
+                            aria-label='Match range'
                             title='How far from the target color still counts as a match'
                         >
                         <p class='ie-hint'>
                             Pick a color to select every match in the image. Then Delete.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
                         </p>
                     </template>
                     <template v-else-if='tool === "stamp"'>
@@ -274,6 +550,8 @@
                                 type='button'
                                 class='ie-stamp-swatch'
                                 :class='{ active: stampKind === entry.kind }'
+                                :aria-pressed='stampKind === entry.kind'
+                                :aria-label='entry.label'
                                 :title='entry.label'
                                 @click='stampKind = entry.kind'
                             >
@@ -292,6 +570,8 @@
                                 type='button'
                                 class='ie-stamp-swatch ie-stamp-swatch-number'
                                 :class='{ active: stampKind === entry.kind }'
+                                :aria-pressed='stampKind === entry.kind'
+                                :aria-label='entry.label'
                                 :title='entry.label'
                                 @click='stampKind = entry.kind'
                             >
@@ -308,10 +588,26 @@
                             min='16'
                             max='96'
                             v-model.number='stampSize'
+                            aria-label='Icon size'
                         >
                         <div class='ie-brush-value'>{{ stampSize }}px</div>
+                        <button
+                            v-if='stampKind'
+                            type='button'
+                            class='ie-btn ie-clear-pick'
+                            :title='stopPlacingTitle'
+                            @click='clearStampPick'
+                        >
+                            Clear pick
+                        </button>
                         <p class='ie-hint'>
-                            Pick an icon, then click to place. Esc clears the pick. Click a placed icon to remove. [ ] size · Shift twice as fast.
+                            Pick an icon, then
+                            <span class='ie-fine-hint'>click to place. </span>
+                            <span class='ie-touch-hint'>tap to preview it. Drag the preview to move it, then tap Place. </span>
+                            <span class='ie-kbd-hint'>Esc clears the pick. </span>
+                            <span class='ie-fine-hint'>Click a placed icon to remove. </span>
+                            <span class='ie-touch-hint'>Tap a placed icon to select it, then tap Remove icon.</span>
+                            <span class='ie-kbd-hint'>[ ] size · Shift twice as fast.</span>
                         </p>
                     </template>
                     <template v-else>
@@ -323,16 +619,89 @@
                             min='2'
                             max='300'
                             v-model.number='brushSize'
+                            aria-label='Brush size'
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
+                        <label class='ie-toggle ie-touch-only'>
+                            <input
+                                v-model='offsetCursor'
+                                type='checkbox'
+                            >
+                            <span>Offset cursor</span>
+                        </label>
                         <p class='ie-hint'>
-                            Drag to erase. [ ] change size · Shift twice as fast.
+                            Drag to erase.
+                            <span class='ie-touch-hint'>Two fingers pan and zoom.</span>
+                            <span class='ie-kbd-hint'>[ ] change size · Shift twice as fast.</span>
                         </p>
                     </template>
-                    <p class='ie-hint ie-hint-muted'>
+                    <p class='ie-hint ie-hint-muted ie-kbd-hint'>
                         Space-drag to pan · Wheel to zoom
                     </p>
                 </aside>
+            </div>
+
+            <template v-if='compact && moreOpen'>
+                <div
+                    class='ie-menu-backdrop'
+                    @click='moreOpen = false'
+                />
+                <div
+                    class='ie-menu'
+                    role='menu'
+                >
+                    <button
+                        type='button'
+                        class='ie-menu-item'
+                        role='menuitem'
+                        :disabled='!canRevert'
+                        @click='openRevert'
+                    >
+                        Revert To Original
+                    </button>
+                </div>
+            </template>
+
+            <div
+                v-if='confirmDiscard'
+                class='ie-modal-backdrop'
+                @click.self='keepEditing'
+            >
+                <div
+                    class='ie-modal'
+                    role='alertdialog'
+                    aria-labelledby='ie-discard-title'
+                    aria-describedby='ie-discard-desc'
+                >
+                    <h2
+                        id='ie-discard-title'
+                        class='ie-modal-title'
+                    >
+                        Discard changes?
+                    </h2>
+                    <p
+                        id='ie-discard-desc'
+                        class='ie-modal-body'
+                    >
+                        Your edits to this image will be lost.
+                    </p>
+                    <div class='ie-modal-actions'>
+                        <button
+                            type='button'
+                            class='ie-btn'
+                            @click='keepEditing'
+                        >
+                            Keep editing
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-btn ie-btn-danger'
+                            @click='confirmDiscardNow'
+                        >
+                            Discard
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div
@@ -381,9 +750,23 @@
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { MAX_IMAGE_SIDE } from './constants.ts';
-import { EditHistory, EDIT_HISTORY_CAP, type EditHistorySnapshot } from './edit-history.ts';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+    IconArrowBackUp,
+    IconArrowForwardUp,
+    IconArrowsMaximize,
+    IconCheck,
+    IconChevronDown,
+    IconChevronUp,
+    IconDots,
+    IconHandStop,
+    IconTrash,
+    IconX,
+    IconZoomIn,
+    IconZoomOut,
+} from '@tabler/icons-vue';
+import { editHistoryCap, maxImageSide, touchWording } from './device.ts';
+import { EditHistory, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
     eraseBrush,
@@ -405,6 +788,16 @@ import {
     type PlacedStamp,
     type StampKind,
 } from './stamp-icons.ts';
+import {
+    fitView as computeFit,
+    isTap,
+    MAX_SCALE,
+    MIN_SCALE,
+    pinchView,
+    zoomAbout,
+    type PinchStart,
+    type View,
+} from './viewport-math.ts';
 
 const props = defineProps<{
     source: HTMLCanvasElement;
@@ -419,11 +812,28 @@ const emit = defineEmits<{
     cancel: [];
 }>();
 
-type Tool = 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
+type Tool = 'hand' | 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
+
+/**
+ * Phones, landscape phones and narrow windows get the compact layout (tool strip,
+ * bottom sheet, icon top bar). Keep this identical to the @media rules in <style>.
+ */
+const COMPACT_QUERY = '(max-width: 768px), (max-height: 500px) and (pointer: coarse)';
+/** Inside the compact layout, short screens put the tool rail on the left. */
+const LANDSCAPE_QUERY = '(max-height: 500px)';
 
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
+/** Used by wand and marquee unless Shift (add) or Ctrl/Cmd (subtract) is held. */
+const selectionMode = ref<FloodSelectMode>('replace');
+const selectionModeOptions: { value: FloodSelectMode; label: string }[] = [
+    { value: 'replace', label: 'Replace' },
+    { value: 'add', label: 'Add' },
+    { value: 'subtract', label: 'Subtract' },
+];
 const brushSize = ref(12);
+/** Touch only: aim the eraser with a circle drawn above the finger so the finger does not hide it. */
+const offsetCursor = ref(false);
 const stampKind = ref<StampKind | null>(null);
 const stampSize = ref(40);
 const facilityCatalog = FACILITY_STAMP_CATALOG;
@@ -440,6 +850,27 @@ const canRedo = ref(false);
 const canRevert = ref(false);
 const hasSelection = ref(false);
 const confirmRevert = ref(false);
+const confirmDiscard = ref(false);
+/** Net number of edits since the editor opened (undo subtracts, redo adds). Not the undo depth, which stops at the cap. */
+const editSeq = ref(0);
+/**
+ * Touch only: an icon being positioned. It is not part of the picture (or the undo history)
+ * until Place is tapped. Mouse and pen place immediately.
+ */
+const pendingStamp = ref<{ kind: StampKind; x: number; y: number; size: number } | null>(null);
+/** Touch only: id of the placed icon the Remove button acts on. */
+const selectedStampId = ref<number | null>(null);
+const dirty = computed(() => editSeq.value !== 0 || pendingStamp.value !== null);
+const compactQuery = window.matchMedia(COMPACT_QUERY);
+const landscapeQuery = window.matchMedia(LANDSCAPE_QUERY);
+const compact = ref(compactQuery.matches);
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+/** What had focus before the editor opened; focus goes back there when it closes. */
+let opener: HTMLElement | null = null;
+const landscape = ref(landscapeQuery.matches);
+/** Compact layout: options bottom sheet. Open by default in portrait, collapsed in landscape. */
+const optionsOpen = ref(!landscapeQuery.matches);
+const moreOpen = ref(false);
 
 const rootEl = ref<HTMLElement | null>(null);
 const viewport = ref<HTMLElement | null>(null);
@@ -447,10 +878,18 @@ const canvasEl = ref<HTMLCanvasElement | null>(null);
 
 let width = props.source.width;
 let height = props.source.height;
-let rgba = new Uint8Array(width * height * 4);
+let rgba: Uint8Array;
 let selectionMask = new Uint8Array(width * height);
 let selectionScratch = new Uint8Array(width * height);
-const editHistory = new EditHistory();
+/** Undo depth and the longest image side depend on the device (see device.ts). */
+const historyCap = editHistoryCap();
+// Keyboard shortcuts are only mentioned where there is a keyboard.
+const touch = touchWording();
+const undoTitle = touch ? 'Undo' : 'Undo (Ctrl+Z)';
+const redoTitle = touch ? 'Redo' : 'Redo (Ctrl+Y)';
+const deselectTitle = touch ? 'Deselect' : 'Deselect (Esc / Ctrl+D)';
+const stopPlacingTitle = touch ? 'Stop placing icons' : 'Stop placing icons (Esc)';
+const editHistory = new EditHistory(historyCap);
 
 const working = document.createElement('canvas');
 working.width = width;
@@ -469,13 +908,16 @@ let tintCtx: CanvasRenderingContext2D = firstTintCtx;
 const sourceCtx = props.source.getContext('2d', { willReadFrequently: true });
 if (!sourceCtx) throw new Error('Could not read the sheet image');
 const initial = sourceCtx.getImageData(0, 0, width, height);
-rgba.set(initial.data);
+// The editor works on the ImageData buffer itself instead of a second copy.
+rgba = new Uint8Array(initial.data.buffer);
 workingCtx.putImageData(initial, 0, 0);
 
+// props.pristine is a fresh copy made for this session and is only ever read.
 let original = props.pristine && props.pristine.length === rgba.length
-    ? new Uint8Array(props.pristine)
-    : new Uint8Array(initial.data);
-if (props.history) editHistory.importSnapshot(props.history);
+    ? props.pristine
+    : rgba.slice();
+// props.history is a fresh copy too, so the history can own its frames.
+if (props.history) editHistory.importSnapshot(props.history, { copy: false });
 
 /** Stamps placed this session — parallel undo stacks stay aligned with EditHistory. */
 let stamps: PlacedStamp[] = [];
@@ -486,10 +928,62 @@ let stampFuture: PlacedStamp[][] = props.history
     ? Array.from({ length: editHistory.redoCount }, () => [])
     : [];
 let nextStampId = 1;
+// stamps is not reactive, so the selected icon is looked up when the bar is drawn.
+const stampCount = computed(() => {
+    void editSeq.value;
+    return stamps.length;
+});
+const selectedStamp = computed(() => {
+    void editSeq.value;
+    void selectedStampId.value;
+    return selectedStampId.value === null
+        ? null
+        : stamps.find((stamp) => stamp.id === selectedStampId.value) ?? null;
+});
+/** What to do when the user confirms the Discard dialog. */
+let onDiscard: (() => void) | null = null;
+
+/** Zoom button step, and how far above the finger the offset cursor sits. */
+const ZOOM_STEP = 1.25;
+const OFFSET_CURSOR_PX = 60;
+/** A fingertip hits a placed icon within this many screen pixels, and grabs the preview within this extra margin. */
+const STAMP_TOUCH_PX = 22;
+const GHOST_GRAB_PX = 12;
+const FIT_PAD = 40;
+const FIT_PAD_COMPACT = 12;
+/** Two taps this close in time and space count as a double-tap. */
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 30;
+
+type TouchPointer = {
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+    t: number;
+};
+
+/** Touch pointers currently down, in landing order. Mouse and pen take the legacy path. */
+const pointers = new Map<number, TouchPointer>();
+/** pinch: two or more fingers pan and zoom. tool: one finger drives the active tool. */
+let gesture: 'none' | 'tool' | 'pinch' = 'none';
+/** After a pinch, the remaining finger is ignored until every finger is lifted. */
+let ignoreUntilAllUp = false;
+let pinchStart: PinchStart | null = null;
+let lastTap: { x: number; y: number; t: number } | null = null;
+/** Mouse or pen pointer that owns the current drag; other pointers are ignored meanwhile. */
+let primaryPointerId: number | null = null;
+let paintRaf = 0;
+let fingerClientX = 0;
+let fingerClientY = 0;
 
 let dragging = false;
+/** Finger offset (image units) while dragging the touch stamp preview. */
+let ghostDrag: { dx: number; dy: number } | null = null;
 let panning = false;
 let strokeActive = false;
+/** Redo frames and stamps that beginStroke() cleared, kept until the stroke ends in case it is rolled back. */
+let strokeSavedFuture: { frames: Uint8Array[]; stamps: PlacedStamp[][] } | null = null;
 let lastBrushX = 0;
 let lastBrushY = 0;
 let panStartX = 0;
@@ -525,13 +1019,33 @@ const targetColorCss = computed(
 );
 
 const cursorClass = computed(() => {
-    if (panning || spaceDown) return 'cursor-pan';
+    if (panning || spaceDown || tool.value === 'hand') return 'cursor-pan';
     if (tool.value === 'eraser') return 'cursor-none';
     if (tool.value === 'stamp') return 'cursor-stamp';
     if (tool.value === 'color') return 'cursor-eyedrop';
     if (tool.value === 'rect') return 'cursor-cross';
     return 'cursor-wand';
 });
+
+const TOOL_LABELS: Record<Tool, string> = {
+    hand: 'Hand',
+    wand: 'Wand',
+    rect: 'Rect',
+    eraser: 'Eraser',
+    color: 'Selective Color',
+    stamp: 'Icons',
+};
+const toolLabel = computed(() => TOOL_LABELS[tool.value]);
+/** One visible line per tool, so the explanation is not only in the hover tooltip (touch has none). */
+const TOOL_DESCRIPTIONS: Record<Tool, string> = {
+    hand: 'Hand: move around the image without changing it.',
+    wand: 'Magic Wand: selects connected pixels of a similar color.',
+    rect: 'Rectangle Marquee: selects a rectangular area.',
+    eraser: 'Eraser: paints transparency.',
+    color: 'Selective Color: selects every pixel that matches a color.',
+    stamp: 'Icons: place or remove facility markers.',
+};
+const toolDescription = computed(() => TOOL_DESCRIPTIONS[tool.value]);
 
 const bodyStyle = computed(() => ({
     gridTemplateColumns: tool.value === 'stamp' ? '72px 1fr 260px' : '72px 1fr 200px',
@@ -547,8 +1061,9 @@ function syncHistoryFlags(): void {
 function pushEdit(): void {
     editHistory.push(rgba);
     stampPast.push(cloneStamps(stamps));
-    if (stampPast.length > EDIT_HISTORY_CAP) stampPast.shift();
+    if (stampPast.length > historyCap) stampPast.shift();
     stampFuture = [];
+    editSeq.value += 1;
 }
 
 function buffersMatch(a: Uint8Array, b: Uint8Array): boolean {
@@ -611,7 +1126,13 @@ function applyColorSelection(): void {
 }
 
 function setTool(next: Tool): void {
+    if (tool.value === 'stamp' && next !== 'stamp') {
+        // A preview on screen is placed rather than silently lost; undo is available.
+        commitPendingStamp();
+        selectedStampId.value = null;
+    }
     tool.value = next;
+    if (compact.value && !landscape.value) optionsOpen.value = true;
     rectDrag = null;
     if (next === 'color') {
         if (hasColorTarget.value) applyColorSelection();
@@ -621,6 +1142,11 @@ function setTool(next: Tool): void {
     }
     // Wand / Rect keep the current selection.
     paint();
+}
+
+function openRevert(): void {
+    moreOpen.value = false;
+    confirmRevert.value = true;
 }
 
 function deleteSelection(): void {
@@ -696,16 +1222,17 @@ function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: 
     let newW = width + padLeft + padRight;
     let newH = height + padTop + padBottom;
     // Keep within export/import limits; shrink padding symmetrically if needed.
-    if (newW > MAX_IMAGE_SIDE) {
-        const over = newW - MAX_IMAGE_SIDE;
+    const maxSide = maxImageSide();
+    if (newW > maxSide) {
+        const over = newW - maxSide;
         const cutL = Math.min(padLeft, Math.floor(over / 2));
         const cutR = Math.min(padRight, over - cutL);
         padLeft -= cutL;
         padRight -= cutR;
         newW = width + padLeft + padRight;
     }
-    if (newH > MAX_IMAGE_SIDE) {
-        const over = newH - MAX_IMAGE_SIDE;
+    if (newH > maxSide) {
+        const over = newH - maxSide;
         const cutT = Math.min(padTop, Math.floor(over / 2));
         const cutB = Math.min(padBottom, over - cutT);
         padTop -= cutT;
@@ -762,27 +1289,95 @@ function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: 
     return { x: cx + padLeft, y: cy + padTop };
 }
 
-function placeOrRemoveStamp(x: number, y: number): void {
-    const hit = hitTestStamp(stamps, x, y);
-    if (hit) {
-        pushEdit();
-        stamps = stamps.filter((stamp) => stamp.id !== hit.id);
-    } else {
-        const kind = stampKind.value;
-        if (!kind) return;
-        const at = ensureStampFits(x, y, stampSize.value);
-        pushEdit();
-        stamps.push({
-            id: nextStampId++,
-            kind,
-            x: at.x,
-            y: at.y,
-            size: stampSize.value,
-        });
-    }
+/** Add a stamp (growing the canvas if it hangs over the edge). One undo step. */
+function addStamp(kind: StampKind, x: number, y: number, size: number): void {
+    const at = ensureStampFits(x, y, size);
+    pushEdit();
+    stamps.push({ id: nextStampId++, kind, x: at.x, y: at.y, size });
     writeWorking();
     syncHistoryFlags();
     paint();
+}
+
+/** Remove a placed stamp. One undo step. */
+function removeStamp(id: number): void {
+    pushEdit();
+    stamps = stamps.filter((stamp) => stamp.id !== id);
+    writeWorking();
+    syncHistoryFlags();
+    paint();
+}
+
+/** Mouse and pen: place at once, or remove the stamp under the pointer. */
+function placeOrRemoveStamp(x: number, y: number): void {
+    const hit = hitTestStamp(stamps, x, y);
+    if (hit) {
+        removeStamp(hit.id);
+        return;
+    }
+    const kind = stampKind.value;
+    if (kind) addStamp(kind, x, y, stampSize.value);
+}
+
+/** Touch: the nearest placed stamp under a fingertip (small stamps get a 22 px screen radius). */
+function stampUnderFinger(x: number, y: number): PlacedStamp | null {
+    let best: PlacedStamp | null = null;
+    let bestDist = Infinity;
+    for (const stamp of stamps) {
+        const dist = Math.hypot(x - stamp.x, y - stamp.y);
+        const radius = Math.max(stamp.size * 0.55, STAMP_TOUCH_PX / scale.value);
+        if (dist <= radius && dist < bestDist) {
+            best = stamp;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+/** Touch tap with the Icons tool: select a placed icon, or move/create the preview. */
+function touchStampTap(x: number, y: number): void {
+    if (pendingStamp.value) {
+        pendingStamp.value = { ...pendingStamp.value, x, y };
+        paint();
+        return;
+    }
+    const hit = stampUnderFinger(x, y);
+    if (hit) {
+        selectedStampId.value = hit.id;
+    } else if (selectedStampId.value !== null) {
+        selectedStampId.value = null;
+    } else if (stampKind.value) {
+        pendingStamp.value = { kind: stampKind.value, x, y, size: stampSize.value };
+    }
+    paint();
+}
+
+function commitPendingStamp(): void {
+    const pending = pendingStamp.value;
+    if (!pending) return;
+    pendingStamp.value = null;
+    ghostDrag = null;
+    addStamp(pending.kind, pending.x, pending.y, pending.size);
+}
+
+function discardPendingStamp(): void {
+    pendingStamp.value = null;
+    ghostDrag = null;
+    paint();
+}
+
+function removeSelectedStamp(): void {
+    const id = selectedStampId.value;
+    selectedStampId.value = null;
+    if (id !== null && stamps.some((stamp) => stamp.id === id)) removeStamp(id);
+    else paint();
+}
+
+/** Undo, redo and revert change the stamp list under the preview and the selection. */
+function clearStampTouchState(): void {
+    pendingStamp.value = null;
+    selectedStampId.value = null;
+    ghostDrag = null;
 }
 
 /** Bake session stamps into the pixel buffer (used on Save). */
@@ -794,6 +1389,13 @@ function bakeStamps(): void {
     stamps = [];
 }
 
+/** The host primary colour for the stamp rings; the canvas cannot use CSS variables directly. */
+function primaryColor(): string {
+    const root = rootEl.value;
+    const value = root ? getComputedStyle(root).getPropertyValue('--tblr-primary').trim() : '';
+    return value || '#4d8dff';
+}
+
 function paint(): void {
     const canvas = canvasEl.value;
     const host = viewport.value;
@@ -801,10 +1403,13 @@ function paint(): void {
     const dpr = window.devicePixelRatio || 1;
     const cssW = host.clientWidth;
     const cssH = host.clientHeight;
-    canvas.width = Math.max(1, Math.floor(cssW * dpr));
-    canvas.height = Math.max(1, Math.floor(cssH * dpr));
-    canvas.style.width = `${cssW}px`;
-    canvas.style.height = `${cssH}px`;
+    // Assigning width/height reallocates the backing store, so only do it on a real size change.
+    const pixelW = Math.max(1, Math.floor(cssW * dpr));
+    const pixelH = Math.max(1, Math.floor(cssH * dpr));
+    if (canvas.width !== pixelW) canvas.width = pixelW;
+    if (canvas.height !== pixelH) canvas.height = pixelH;
+    if (canvas.style.width !== `${cssW}px`) canvas.style.width = `${cssW}px`;
+    if (canvas.style.height !== `${cssH}px`) canvas.style.height = `${cssH}px`;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -863,7 +1468,7 @@ function paint(): void {
         ctx.fillRect(left, top, rw, rh);
     }
 
-    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown) {
+    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown && gesture === 'none') {
         const hover = viewToImage(hoverClientX, hoverClientY);
         if (hover) {
             const hit = hitTestStamp(stamps, hover.x, hover.y);
@@ -880,13 +1485,42 @@ function paint(): void {
             }
         }
     }
+    if (tool.value === 'stamp') {
+        const ring = primaryColor();
+        const pending = pendingStamp.value;
+        const chosen = selectedStamp.value;
+        if (pending) {
+            drawStampAt(ctx, pending.kind, pending.x, pending.y, pending.size, 0.55);
+            ctx.beginPath();
+            ctx.arc(pending.x, pending.y, pending.size * 0.55, 0, Math.PI * 2);
+        } else if (chosen) {
+            ctx.beginPath();
+            ctx.arc(chosen.x, chosen.y, chosen.size * 0.55, 0, Math.PI * 2);
+        }
+        if (pending || chosen) {
+            ctx.strokeStyle = ring;
+            ctx.lineWidth = Math.max(1.5 / scale.value, 2 / scale.value);
+            ctx.setLineDash([4 / scale.value, 3 / scale.value]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+    }
     ctx.restore();
 
     // Brush size cursor in screen space
-    if (tool.value === 'eraser' && pointerInView && !panning && !spaceDown) {
+    if (tool.value === 'eraser' && pointerInView && !panning && !spaceDown && gesture !== 'pinch') {
         const rect = host.getBoundingClientRect();
         const cx = hoverClientX - rect.left;
         const cy = hoverClientY - rect.top;
+        if (hoverClientY !== fingerClientY || hoverClientX !== fingerClientX) {
+            // Offset cursor: thin line from the finger to the brush circle.
+            ctx.beginPath();
+            ctx.moveTo(fingerClientX - rect.left, fingerClientY - rect.top);
+            ctx.lineTo(cx, cy);
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
         const r = (brushSize.value / 2) * scale.value;
         ctx.beginPath();
         ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2);
@@ -903,15 +1537,37 @@ function paint(): void {
     }
 }
 
+function schedulePaint(): void {
+    if (paintRaf) return;
+    paintRaf = requestAnimationFrame(() => {
+        paintRaf = 0;
+        paint();
+    });
+}
+
+function currentView(): View {
+    return { scale: scale.value, panX: panX.value, panY: panY.value };
+}
+
+function setView(view: View): void {
+    scale.value = view.scale;
+    panX.value = view.panX;
+    panY.value = view.panY;
+}
+
 function fitView(): void {
     const host = viewport.value;
     if (!host) return;
-    const pad = 40;
-    const sx = (host.clientWidth - pad * 2) / width;
-    const sy = (host.clientHeight - pad * 2) / height;
-    scale.value = Math.min(1, Math.max(0.05, Math.min(sx, sy)));
-    panX.value = (host.clientWidth - width * scale.value) / 2;
-    panY.value = (host.clientHeight - height * scale.value) / 2;
+    const pad = compact.value ? FIT_PAD_COMPACT : FIT_PAD;
+    setView(computeFit(host.clientWidth, host.clientHeight, width, height, pad));
+    paint();
+}
+
+/** Zoom by `factor` around the centre of the viewport (zoom buttons). */
+function zoomBy(factor: number): void {
+    const host = viewport.value;
+    if (!host) return;
+    setView(zoomAbout(currentView(), factor, host.clientWidth / 2, host.clientHeight / 2));
     paint();
 }
 
@@ -930,23 +1586,19 @@ function onWheel(event: WheelEvent): void {
     const host = viewport.value;
     if (!host) return;
     const rect = host.getBoundingClientRect();
-    const vx = event.clientX - rect.left;
-    const vy = event.clientY - rect.top;
-    const before = 1 / scale.value;
     const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(8, Math.max(0.05, scale.value * factor));
-    const ix = (vx - panX.value) * before;
-    const iy = (vy - panY.value) * before;
-    scale.value = next;
-    panX.value = vx - ix * next;
-    panY.value = vy - iy * next;
+    setView(zoomAbout(currentView(), factor, event.clientX - rect.left, event.clientY - rect.top));
     paint();
 }
 
+function clearStampPick(): void {
+    stampKind.value = null;
+    paint();
+}
 function selectModeFromEvent(event: PointerEvent): FloodSelectMode {
     if (event.ctrlKey || event.metaKey) return 'subtract';
     if (event.shiftKey) return 'add';
-    return 'replace';
+    return selectionMode.value;
 }
 
 function clampImagePoint(point: { x: number; y: number }): { x: number; y: number } {
@@ -969,12 +1621,356 @@ function finishRectDrag(): void {
     paint();
 }
 
+/** Wand: flood-select at an image point. */
+function selectAt(point: { x: number; y: number }, mode: FloodSelectMode): void {
+    floodSelect(
+        rgba,
+        width,
+        height,
+        point.x,
+        point.y,
+        fuzziness.value,
+        selectionMask,
+        mode,
+        selectionScratch,
+    );
+    rebuildSelectionVisuals();
+    paint();
+}
+
+/** Selective Color: sample the pixel and select every match. */
+function pickColorAt(point: { x: number; y: number }): void {
+    const sampled = sampleColor(rgba, width, height, point.x, point.y);
+    if (!sampled) return;
+    targetR.value = sampled.r;
+    targetG.value = sampled.g;
+    targetB.value = sampled.b;
+    hasColorTarget.value = true;
+    applyColorSelection();
+}
+
+/** Eraser: snapshot for undo, then dab at the first point. */
+function beginStroke(point: { x: number; y: number }): void {
+    strokeSavedFuture = { frames: editHistory.exportSnapshot({ copy: false }).future, stamps: stampFuture };
+    pushEdit();
+    strokeActive = true;
+    lastBrushX = point.x;
+    lastBrushY = point.y;
+    eraseBrush(rgba, width, height, point.x, point.y, brushSize.value / 2);
+    writeWorking();
+    syncHistoryFlags();
+    paint();
+}
+
+function continueStroke(point: { x: number; y: number }): void {
+    const dx = point.x - lastBrushX;
+    const dy = point.y - lastBrushY;
+    const dist = Math.hypot(dx, dy);
+    const step = Math.max(1, brushSize.value / 4);
+    const steps = Math.max(1, Math.ceil(dist / step));
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        eraseBrush(
+            rgba,
+            width,
+            height,
+            lastBrushX + dx * t,
+            lastBrushY + dy * t,
+            brushSize.value / 2,
+        );
+    }
+    lastBrushX = point.x;
+    lastBrushY = point.y;
+    writeWorking();
+    schedulePaint();
+}
+
+function isInsideImage(point: { x: number; y: number }): boolean {
+    return point.x >= 0 && point.y >= 0 && point.x < width && point.y < height;
+}
+
+/**
+ * Abandon whatever the active tool was doing: roll back an eraser stroke
+ * (including its undo snapshot) and drop a marquee without selecting.
+ */
+function cancelInProgress(): void {
+    if (strokeActive && editHistory.rollback(rgba, strokeSavedFuture?.frames)) {
+        stampPast.pop();
+        if (strokeSavedFuture) stampFuture = strokeSavedFuture.stamps;
+        editSeq.value -= 1;
+        writeWorking();
+        syncHistoryFlags();
+    }
+    rectDrag = null;
+    strokeActive = false;
+    strokeSavedFuture = null;
+    dragging = false;
+    ghostDrag = null;
+    panning = false;
+}
+
+/** Position of an event inside the viewport element. */
+function viewportPoint(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = viewport.value?.getBoundingClientRect();
+    return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+}
+
+/** Where the active tool acts. With the offset cursor the eraser works above the finger. */
+function effectiveClient(event: PointerEvent): { x: number; y: number } {
+    if (offsetCursor.value && event.pointerType === 'touch' && tool.value === 'eraser') {
+        return { x: event.clientX, y: event.clientY - OFFSET_CURSOR_PX };
+    }
+    return { x: event.clientX, y: event.clientY };
+}
+
+function beginPinch(): void {
+    const [a, b] = [...pointers.values()];
+    if (!a || !b) return;
+    const pa = viewportPoint(a.x, a.y);
+    const pb = viewportPoint(b.x, b.y);
+    pinchStart = {
+        d0: Math.hypot(pb.x - pa.x, pb.y - pa.y),
+        m0: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 },
+        scale0: scale.value,
+        panX0: panX.value,
+        panY0: panY.value,
+    };
+    gesture = 'pinch';
+    paint();
+}
+
+function updatePinch(): void {
+    const [a, b] = [...pointers.values()];
+    if (!pinchStart || !a || !b) return;
+    const pa = viewportPoint(a.x, a.y);
+    const pb = viewportPoint(b.x, b.y);
+    setView(pinchView(pinchStart, {
+        d: Math.hypot(pb.x - pa.x, pb.y - pa.y),
+        m: { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 },
+    }));
+    schedulePaint();
+}
+
+function onTouchDown(event: PointerEvent, target: HTMLElement): void {
+    event.preventDefault();
+    try {
+        target.setPointerCapture(event.pointerId);
+    } catch {
+        // The pointer ended before capture; the up/cancel handler cleans up.
+    }
+    pointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+        startX: event.clientX,
+        startY: event.clientY,
+        t: event.timeStamp,
+    });
+
+    if (pointers.size >= 2) {
+        // A second finger means pan/zoom, never a tool action.
+        cancelInProgress();
+        beginPinch();
+        return;
+    }
+
+    gesture = 'tool';
+    pointerInView = true;
+    const at = effectiveClient(event);
+    hoverClientX = at.x;
+    hoverClientY = at.y;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
+
+    if (tool.value === 'hand') {
+        panning = true;
+        panStartX = event.clientX;
+        panStartY = event.clientY;
+        panOriginX = panX.value;
+        panOriginY = panY.value;
+        paint();
+        return;
+    }
+
+    if (tool.value === 'rect') {
+        const point = viewToImage(event.clientX, event.clientY);
+        if (!point) return;
+        const clamped = clampImagePoint(point);
+        dragging = true;
+        rectDrag = {
+            x0: clamped.x,
+            y0: clamped.y,
+            x1: clamped.x,
+            y1: clamped.y,
+            mode: selectModeFromEvent(event),
+        };
+        paint();
+        return;
+    }
+
+    if (tool.value === 'eraser') {
+        const point = viewToImage(at.x, at.y);
+        if (point && isInsideImage(point)) {
+            dragging = true;
+            beginStroke(point);
+        } else {
+            paint();
+        }
+        return;
+    }
+
+    if (tool.value === 'stamp' && pendingStamp.value) {
+        // A finger on the preview drags it; anywhere else it is a tap and acts on release.
+        const point = viewToImage(event.clientX, event.clientY);
+        const ghost = pendingStamp.value;
+        if (point && Math.hypot(point.x - ghost.x, point.y - ghost.y) * scale.value
+            <= (ghost.size * scale.value) / 2 + GHOST_GRAB_PX) {
+            ghostDrag = { dx: ghost.x - point.x, dy: ghost.y - point.y };
+            dragging = true;
+        }
+    }
+
+    // Wand, Selective Color and Icons act on release so a pinch never selects or places.
+    paint();
+}
+
+function onTouchMove(event: PointerEvent): void {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+
+    if (gesture === 'pinch') {
+        updatePinch();
+        return;
+    }
+    if (gesture !== 'tool' || ignoreUntilAllUp) return;
+
+    const at = effectiveClient(event);
+    hoverClientX = at.x;
+    hoverClientY = at.y;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
+
+    if (panning) {
+        panX.value = panOriginX + (event.clientX - panStartX);
+        panY.value = panOriginY + (event.clientY - panStartY);
+        schedulePaint();
+        return;
+    }
+
+    if (tool.value === 'rect' && dragging && rectDrag) {
+        const point = viewToImage(event.clientX, event.clientY);
+        if (!point) return;
+        const clamped = clampImagePoint(point);
+        rectDrag.x1 = clamped.x;
+        rectDrag.y1 = clamped.y;
+        schedulePaint();
+        return;
+    }
+
+    if (tool.value === 'eraser') {
+        if (dragging && strokeActive) {
+            const point = viewToImage(at.x, at.y);
+            if (point) continueStroke(point);
+        } else {
+            schedulePaint();
+        }
+        return;
+    }
+
+    if (tool.value === 'stamp') {
+        if (ghostDrag && pendingStamp.value) {
+            const point = viewToImage(event.clientX, event.clientY);
+            if (point) {
+                pendingStamp.value = {
+                    ...pendingStamp.value,
+                    x: point.x + ghostDrag.dx,
+                    y: point.y + ghostDrag.dy,
+                };
+            }
+        }
+        schedulePaint();
+    }
+}
+
+/** One finger was lifted with the tool still in charge: commit or fire the tap action. */
+function finishTouchTool(pointer: TouchPointer, up: { x: number; y: number; t: number }): void {
+    const tapped = isTap({ x: pointer.startX, y: pointer.startY, t: pointer.t }, up);
+    if (rectDrag) finishRectDrag();
+    const draggedGhost = ghostDrag !== null;
+    ghostDrag = null;
+    dragging = false;
+    panning = false;
+    strokeActive = false;
+    strokeSavedFuture = null;
+    // Releasing the preview after dragging (or just holding it) is not a tap.
+    if (!tapped || draggedGhost) return;
+
+    const point = viewToImage(up.x, up.y);
+    if (!point) return;
+    const inside = isInsideImage(point);
+
+    // Double-tap fits the view. It is limited to the Hand tool and taps outside the
+    // image, because the other tools already act on a tap and must not wait for a second one.
+    const previous = lastTap;
+    lastTap = up;
+    const isDouble = previous !== null
+        && up.t - previous.t <= DOUBLE_TAP_MS
+        && Math.hypot(up.x - previous.x, up.y - previous.y) <= DOUBLE_TAP_PX;
+    if (isDouble && (tool.value === 'hand' || (tool.value !== 'stamp' && !inside))) {
+        lastTap = null;
+        fitView();
+        return;
+    }
+
+    if (tool.value === 'wand' && inside) selectAt(point, selectionMode.value);
+    else if (tool.value === 'color' && inside) pickColorAt(point);
+    else if (tool.value === 'stamp') touchStampTap(point.x, point.y);
+}
+
+function releaseTouch(event: PointerEvent, cancelled: boolean): void {
+    const pointer = pointers.get(event.pointerId);
+    if (!pointer) return;
+    pointers.delete(event.pointerId);
+
+    if (gesture === 'pinch') {
+        if (pointers.size >= 2) {
+            beginPinch();
+        } else {
+            gesture = 'none';
+            pinchStart = null;
+            // The remaining finger must not start a stroke or tap after the pinch.
+            ignoreUntilAllUp = true;
+        }
+    } else if (cancelled) {
+        cancelInProgress();
+    } else if (gesture === 'tool' && !ignoreUntilAllUp) {
+        finishTouchTool(pointer, { x: event.clientX, y: event.clientY, t: event.timeStamp });
+    }
+
+    if (pointers.size === 0) {
+        gesture = 'none';
+        pinchStart = null;
+        ignoreUntilAllUp = false;
+        pointerInView = false;
+    }
+    paint();
+}
+
 function onPointerDown(event: PointerEvent): void {
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement)) return;
 
-    if (event.button === 1 || spaceDown || event.button === 2) {
+    if (event.pointerType === 'touch') {
+        onTouchDown(event, target);
+        return;
+    }
+    // Mouse and pen: one drag at a time.
+    if (primaryPointerId !== null || pointers.size > 0) return;
+
+    if (event.button === 1 || spaceDown || event.button === 2 || (tool.value === 'hand' && event.button === 0)) {
         panning = true;
+        primaryPointerId = event.pointerId;
         panStartX = event.clientX;
         panStartY = event.clientY;
         panOriginX = panX.value;
@@ -992,6 +1988,7 @@ function onPointerDown(event: PointerEvent): void {
     if (tool.value === 'rect') {
         const clamped = clampImagePoint(point);
         dragging = true;
+        primaryPointerId = event.pointerId;
         target.setPointerCapture(event.pointerId);
         event.preventDefault();
         rectDrag = {
@@ -1014,62 +2011,46 @@ function onPointerDown(event: PointerEvent): void {
         return;
     }
 
-    if (point.x < 0 || point.y < 0 || point.x >= width || point.y >= height) return;
+    if (!isInsideImage(point)) return;
 
     dragging = true;
     target.setPointerCapture(event.pointerId);
     event.preventDefault();
 
     if (tool.value === 'wand') {
-        floodSelect(
-            rgba,
-            width,
-            height,
-            point.x,
-            point.y,
-            fuzziness.value,
-            selectionMask,
-            selectModeFromEvent(event),
-            selectionScratch,
-        );
-        rebuildSelectionVisuals();
-        paint();
+        selectAt(point, selectModeFromEvent(event));
         dragging = false;
         return;
     }
 
     if (tool.value === 'color') {
-        const sampled = sampleColor(rgba, width, height, point.x, point.y);
-        if (sampled) {
-            targetR.value = sampled.r;
-            targetG.value = sampled.g;
-            targetB.value = sampled.b;
-            hasColorTarget.value = true;
-            applyColorSelection();
-        }
+        pickColorAt(point);
         dragging = false;
         return;
     }
 
-    pushEdit();
-    strokeActive = true;
-    lastBrushX = point.x;
-    lastBrushY = point.y;
-    eraseBrush(rgba, width, height, point.x, point.y, brushSize.value / 2);
-    writeWorking();
-    syncHistoryFlags();
-    paint();
+    primaryPointerId = event.pointerId;
+    beginStroke(point);
 }
 
 function onPointerMove(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        onTouchMove(event);
+        return;
+    }
+    if (pointers.size > 0) return;
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+
     pointerInView = true;
     hoverClientX = event.clientX;
     hoverClientY = event.clientY;
+    fingerClientX = event.clientX;
+    fingerClientY = event.clientY;
 
     if (panning) {
         panX.value = panOriginX + (event.clientX - panStartX);
         panY.value = panOriginY + (event.clientY - panStartY);
-        paint();
+        schedulePaint();
         return;
     }
 
@@ -1079,61 +2060,73 @@ function onPointerMove(event: PointerEvent): void {
         const clamped = clampImagePoint(point);
         rectDrag.x1 = clamped.x;
         rectDrag.y1 = clamped.y;
-        paint();
+        schedulePaint();
         return;
     }
 
     if (tool.value === 'stamp') {
-        paint();
+        schedulePaint();
         return;
     }
 
     if (tool.value === 'eraser' && (!dragging || !strokeActive)) {
-        paint();
+        schedulePaint();
         return;
     }
 
     if (!dragging || !strokeActive || tool.value !== 'eraser') return;
     const point = viewToImage(event.clientX, event.clientY);
     if (!point) return;
-
-    const dx = point.x - lastBrushX;
-    const dy = point.y - lastBrushY;
-    const dist = Math.hypot(dx, dy);
-    const step = Math.max(1, brushSize.value / 4);
-    const steps = Math.max(1, Math.ceil(dist / step));
-    for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        eraseBrush(
-            rgba,
-            width,
-            height,
-            lastBrushX + dx * t,
-            lastBrushY + dy * t,
-            brushSize.value / 2,
-        );
-    }
-    lastBrushX = point.x;
-    lastBrushY = point.y;
-    writeWorking();
-    paint();
+    continueStroke(point);
 }
 
-function onPointerUp(): void {
+function onPointerUp(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        releaseTouch(event, false);
+        return;
+    }
+    if (pointers.size > 0) return;
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+    primaryPointerId = null;
     if (tool.value === 'rect' && rectDrag) finishRectDrag();
     dragging = false;
     panning = false;
     strokeActive = false;
+    strokeSavedFuture = null;
     paint();
 }
 
-function onPointerLeave(): void {
+/** The browser took the pointer away (scroll, system gesture): never commit a half-done edit. */
+function onPointerCancel(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        releaseTouch(event, true);
+        return;
+    }
+    if (primaryPointerId !== null && event.pointerId !== primaryPointerId) return;
+    primaryPointerId = null;
+    cancelInProgress();
+    paint();
+}
+
+function onLostPointerCapture(event: PointerEvent): void {
+    if (event.pointerType === 'touch') {
+        // Normal releases already removed the pointer in onPointerUp.
+        if (pointers.has(event.pointerId)) releaseTouch(event, true);
+        return;
+    }
+    if (primaryPointerId === event.pointerId) onPointerCancel(event);
+}
+
+function onPointerLeave(event: PointerEvent): void {
+    // A touch pointer is captured until it is lifted; onPointerUp resets it.
+    if (event.pointerType === 'touch') return;
     pointerInView = false;
     if (!dragging && !panning) paint();
 }
 
 function doUndo(): void {
     if (!editHistory.canUndo) return;
+    clearStampTouchState();
     stampFuture.push(cloneStamps(stamps));
     stamps = stampPast.pop() ?? [];
     if (!editHistory.undo(rgba)) {
@@ -1141,6 +2134,7 @@ function doUndo(): void {
         stamps = stampFuture.pop() ?? [];
         return;
     }
+    editSeq.value -= 1;
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -1149,6 +2143,7 @@ function doUndo(): void {
 
 function doRedo(): void {
     if (!editHistory.canRedo) return;
+    clearStampTouchState();
     stampPast.push(cloneStamps(stamps));
     stamps = stampFuture.pop() ?? [];
     if (!editHistory.redo(rgba)) {
@@ -1156,6 +2151,8 @@ function doRedo(): void {
         stamps = stampPast.pop() ?? [];
         return;
     }
+    if (stampPast.length > historyCap) stampPast.shift();
+    editSeq.value += 1;
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -1168,6 +2165,7 @@ function revertToOriginal(): void {
         syncHistoryFlags();
         return;
     }
+    clearStampTouchState();
     pushEdit();
     rgba.set(original);
     stamps = [];
@@ -1177,9 +2175,60 @@ function revertToOriginal(): void {
     if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 }
 
+const FOCUSABLE = 'button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab and Shift+Tab inside the editor (or inside the open dialog) by wrapping at the ends. */
+function trapTab(event: KeyboardEvent): void {
+    const root = rootEl.value;
+    if (!root) return;
+    const scope = root.querySelector<HTMLElement>('.ie-modal') ?? root;
+    const items = [...scope.querySelectorAll<HTMLElement>(FOCUSABLE)]
+        .filter((el) => !(el as HTMLButtonElement).disabled && el.getClientRects().length > 0);
+    if (items.length === 0) {
+        event.preventDefault();
+        return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !scope.contains(active) || active === root) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
 function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Tab') {
+        trapTab(event);
+        return;
+    }
+
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    // Space on a button reached with the keyboard must press it, not start Space-drag panning.
+    if (event.code === 'Space' && target instanceof HTMLButtonElement && target.matches(':focus-visible')) return;
+
+    if (moreOpen.value) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            moreOpen.value = false;
+        }
+        return;
+    }
+
+    if (confirmDiscard.value) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            keepEditing();
+        }
+        return;
+    }
 
     if (confirmRevert.value) {
         if (event.key === 'Escape') {
@@ -1197,6 +2246,17 @@ function onKeyDown(event: KeyboardEvent): void {
     }
 
     if (event.key === 'Escape') {
+        if (tool.value === 'stamp' && pendingStamp.value) {
+            event.preventDefault();
+            discardPendingStamp();
+            return;
+        }
+        if (tool.value === 'stamp' && selectedStampId.value !== null) {
+            event.preventDefault();
+            selectedStampId.value = null;
+            paint();
+            return;
+        }
         if (tool.value === 'stamp' && stampKind.value) {
             event.preventDefault();
             stampKind.value = null;
@@ -1261,7 +2321,50 @@ function onKeyUp(event: KeyboardEvent): void {
     }
 }
 
+/**
+ * Keep Escape inside the editor. The host Map.vue listens for Escape on window
+ * keyup and can navigate to '/', which would unmount the editor and drop unsaved
+ * edits. Today that branch is unreachable, but a host fix would expose it.
+ * The editor itself handles Escape on keydown, so only keyup is stopped here.
+ */
+function onEscapeKeyUpCapture(event: KeyboardEvent): void {
+    if (event.key === 'Escape') event.stopPropagation();
+}
+
+/** Ask before throwing edits away. `proceed` runs when the user confirms; a second request closes the dialog. */
+function requestDiscard(proceed: () => void): void {
+    if (confirmDiscard.value) {
+        keepEditing();
+        return;
+    }
+    moreOpen.value = false;
+    confirmRevert.value = false;
+    onDiscard = proceed;
+    confirmDiscard.value = true;
+}
+
+function keepEditing(): void {
+    confirmDiscard.value = false;
+    onDiscard = null;
+}
+
+function confirmDiscardNow(): void {
+    const proceed = onDiscard;
+    confirmDiscard.value = false;
+    onDiscard = null;
+    proceed?.();
+}
+
+/** The Cancel button: leave straight away when nothing changed, otherwise ask first. */
+function onCancelClick(): void {
+    if (dirty.value) requestDiscard(() => emit('cancel'));
+    else emit('cancel');
+}
+
+defineExpose({ dirty, requestDiscard });
+
 function emitApply(): void {
+    commitPendingStamp();
     bakeStamps();
     writeWorking();
     const out = document.createElement('canvas');
@@ -1270,12 +2373,21 @@ function emitApply(): void {
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(working, 0, 0);
-    emit('apply', out, editHistory.exportSnapshot());
+    // The editor unmounts right after Save, so the sheet can take the frames without a second copy.
+    emit('apply', out, editHistory.exportSnapshot({ copy: false }));
 }
 
 function antsLoop(now: number): void {
     antsRaf = requestAnimationFrame(antsLoop);
     if (!hasSelection.value) return;
+    if (reducedMotion.matches) {
+        // Static dashes instead of the crawl.
+        if (antsPhase !== 0) {
+            antsPhase = 0;
+            paint();
+        }
+        return;
+    }
     // ~12 fps crawl — readable ants without strobing a full redraw.
     if (now - lastAntPaint < 80) return;
     lastAntPaint = now;
@@ -1284,7 +2396,26 @@ function antsLoop(now: number): void {
 }
 
 watch([brushSize, stampSize, stampKind, tool], () => {
+    const pending = pendingStamp.value;
+    if (pending) {
+        // Changing the icon or its size updates the preview; clearing the pick drops it.
+        pendingStamp.value = stampKind.value
+            ? { ...pending, kind: stampKind.value, size: stampSize.value }
+            : null;
+    }
     paint();
+});
+
+// A dialog opens on its safe button; closing it returns focus to the editor.
+watch([confirmDiscard, confirmRevert, moreOpen], async ([discard, revert, more], [wasDiscard, wasRevert, wasMore]) => {
+    await nextTick();
+    if (discard || revert) {
+        rootEl.value?.querySelector<HTMLElement>('.ie-modal .ie-btn')?.focus();
+    } else if (more && !wasMore) {
+        rootEl.value?.querySelector<HTMLElement>('.ie-menu-item:not(:disabled)')?.focus();
+    } else if (wasDiscard || wasRevert || wasMore) {
+        rootEl.value?.focus();
+    }
 });
 
 watch(fuzziness, () => {
@@ -1292,17 +2423,50 @@ watch(fuzziness, () => {
 });
 
 let resizeObserver: ResizeObserver | null = null;
+let lastViewW = 0;
+let lastViewH = 0;
+
+function onLayoutChange(): void {
+    compact.value = compactQuery.matches;
+    landscape.value = landscapeQuery.matches;
+    if (!compact.value) moreOpen.value = false;
+    optionsOpen.value = !landscape.value;
+    // The viewport changes size and shape; start from a fitted image.
+    nextTick(fitView);
+}
+
+/** Keep the image centred when the sheet opens or closes, instead of shifting it. */
+function onViewResize(): void {
+    const host = viewport.value;
+    if (host) {
+        const w = host.clientWidth;
+        const h = host.clientHeight;
+        if (compact.value && lastViewW > 0 && (w !== lastViewW || h !== lastViewH)) {
+            panX.value += (w - lastViewW) / 2;
+            panY.value += (h - lastViewH) / 2;
+        }
+        lastViewW = w;
+        lastViewH = h;
+    }
+    schedulePaint();
+}
 
 onMounted(() => {
     document.body.classList.add('rubber-ie-open');
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keyup', onEscapeKeyUpCapture, true);
+    compactQuery.addEventListener('change', onLayoutChange);
+    landscapeQuery.addEventListener('change', onLayoutChange);
     syncHistoryFlags();
     fitView();
     if (viewport.value) {
-        resizeObserver = new ResizeObserver(() => paint());
+        lastViewW = viewport.value.clientWidth;
+        lastViewH = viewport.value.clientHeight;
+        resizeObserver = new ResizeObserver(onViewResize);
         resizeObserver.observe(viewport.value);
     }
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     rootEl.value?.focus();
     antsRaf = requestAnimationFrame(antsLoop);
 });
@@ -1311,12 +2475,30 @@ onUnmounted(() => {
     document.body.classList.remove('rubber-ie-open');
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('keyup', onEscapeKeyUpCapture, true);
+    compactQuery.removeEventListener('change', onLayoutChange);
+    landscapeQuery.removeEventListener('change', onLayoutChange);
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
+    cancelAnimationFrame(paintRaf);
+    pointers.clear();
+    // Hand focus back to what opened the editor (the pane's Edit Image button).
+    if (opener && opener.isConnected) opener.focus();
+    opener = null;
+    // Free the big buffers now instead of waiting for the garbage collector (matters on phones).
     editHistory.clear();
     stamps = [];
     stampPast = [];
     stampFuture = [];
+    rgba = new Uint8Array(0);
+    original = new Uint8Array(0);
+    selectionMask = new Uint8Array(0);
+    selectionScratch = new Uint8Array(0);
+    selectionPath = null;
+    for (const canvas of [working, tintCanvas]) {
+        canvas.width = 0;
+        canvas.height = 0;
+    }
 });
 </script>
 
@@ -1324,12 +2506,16 @@ onUnmounted(() => {
 .ie-root {
     position: fixed;
     inset: 0;
+    /* Dynamic viewport height tracks the mobile URL bar; older browsers keep inset: 0. */
+    height: 100dvh;
+    box-sizing: border-box;
+    /* Top inset is handled by .ie-topbar so its background reaches the screen edge. */
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     z-index: 10050;
     display: flex;
     flex-direction: column;
-    background: #1b1e24;
-    color: #e8eaed;
-    font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--tblr-body-bg);
+    color: var(--cloudtak-surface-color);
     outline: none;
 }
 
@@ -1338,11 +2524,11 @@ onUnmounted(() => {
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 12px;
+    box-sizing: content-box;
     height: 48px;
-    padding: 0 14px;
-    background: linear-gradient(180deg, #2a2f38 0%, #22262e 100%);
-    border-bottom: 1px solid #0f1115;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+    padding: env(safe-area-inset-top, 0px) 14px 0;
+    background: var(--cloudtak-surface-bg);
+    border-bottom: 1px solid var(--cloudtak-surface-border);
 }
 
 .ie-brand {
@@ -1359,8 +2545,8 @@ onUnmounted(() => {
     width: 10px;
     height: 10px;
     border-radius: 2px;
-    background: linear-gradient(135deg, #5b9cff, #3d7cf0);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+    background: var(--tblr-primary);
+    box-shadow: 0 0 0 1px var(--cloudtak-surface-border);
 }
 
 .ie-top-center {
@@ -1380,9 +2566,9 @@ onUnmounted(() => {
 
 .ie-btn {
     appearance: none;
-    border: 1px solid #3a414d;
-    background: #2c313a;
-    color: #e8eaed;
+    border: 1px solid var(--cloudtak-inset-border);
+    background: var(--cloudtak-inset-bg);
+    color: inherit;
     border-radius: 6px;
     padding: 5px 11px;
     font-size: 12px;
@@ -1398,8 +2584,8 @@ onUnmounted(() => {
 }
 
 .ie-btn:hover:not(:disabled) {
-    background: #363c48;
-    border-color: #525b6a;
+    background: var(--cloudtak-inset-hover-bg);
+    border-color: var(--cloudtak-hover-border);
 }
 
 .ie-btn:disabled {
@@ -1408,23 +2594,25 @@ onUnmounted(() => {
 }
 
 .ie-btn-save {
-    background: #2f9e5a;
-    border-color: #248a4b;
-    color: #fff;
+    background: var(--tblr-success);
+    border-color: color-mix(in srgb, var(--tblr-success) 80%, black);
+    color: var(--tblr-white, #fff);
 }
 
 .ie-btn-save:hover:not(:disabled) {
-    background: #37b067;
+    background: color-mix(in srgb, var(--tblr-success) 88%, white);
+    border-color: color-mix(in srgb, var(--tblr-success) 80%, black);
 }
 
 .ie-btn-danger {
-    background: #4a2a2a;
-    border-color: #7a3a3a;
-    color: #ffb4b4;
+    background: color-mix(in srgb, var(--tblr-danger) 16%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-danger) 55%, transparent);
+    color: var(--tblr-danger);
 }
 
 .ie-btn-danger:hover:not(:disabled) {
-    background: #5c3232;
+    background: color-mix(in srgb, var(--tblr-danger) 28%, transparent);
+    border-color: var(--tblr-danger);
 }
 
 .ie-body {
@@ -1439,8 +2627,8 @@ onUnmounted(() => {
     flex-direction: column;
     gap: 6px;
     padding: 10px 8px;
-    background: #22262e;
-    border-right: 1px solid #0f1115;
+    background: var(--cloudtak-surface-bg);
+    border-right: 1px solid var(--cloudtak-surface-border);
 }
 
 .ie-tool {
@@ -1452,7 +2640,7 @@ onUnmounted(() => {
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -1460,14 +2648,14 @@ onUnmounted(() => {
 }
 
 .ie-tool:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
+    background: var(--cloudtak-hover-bg);
+    color: var(--cloudtak-surface-color);
 }
 
 .ie-tool.active {
-    background: rgba(61, 124, 240, 0.18);
-    border-color: rgba(91, 156, 255, 0.45);
-    color: #fff;
+    background: color-mix(in srgb, var(--tblr-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-primary) 55%, transparent);
+    color: var(--cloudtak-active-color);
 }
 
 .ie-tool-multiline {
@@ -1482,7 +2670,44 @@ onUnmounted(() => {
     min-width: 0;
     min-height: 0;
     touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
     background: #15181d;
+}
+
+.ie-zoom {
+    position: absolute;
+    right: 12px;
+    bottom: 18px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ie-zoom-btn {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--cloudtak-surface-border);
+    border-radius: 8px;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    cursor: pointer;
+}
+
+.ie-zoom-btn:hover:not(:disabled) {
+    border-color: var(--tblr-primary);
+}
+
+.ie-zoom-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
 }
 
 .ie-view canvas {
@@ -1502,8 +2727,9 @@ onUnmounted(() => {
     padding: 8px 10px;
     border-radius: 10px;
     transform: translateX(-50%);
-    background: rgba(34, 38, 46, 0.94);
-    border: 1px solid #3a414d;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
     pointer-events: auto;
     animation: ie-selection-in 160ms ease-out;
@@ -1522,8 +2748,8 @@ onUnmounted(() => {
 
 .ie-options {
     padding: 14px 14px 18px;
-    background: #22262e;
-    border-left: 1px solid #0f1115;
+    background: var(--cloudtak-surface-bg);
+    border-left: 1px solid var(--cloudtak-surface-border);
     overflow: auto;
 }
 
@@ -1544,10 +2770,10 @@ onUnmounted(() => {
     align-items: center;
     gap: 4px;
     padding: 8px 4px 6px;
-    border: 1px solid #3a414d;
+    border: 1px solid var(--cloudtak-inset-border);
     border-radius: 8px;
-    background: #2c313a;
-    color: #c5cad3;
+    background: var(--cloudtak-inset-bg);
+    color: var(--tblr-secondary-color);
     font-size: 10px;
     font-weight: 600;
     line-height: 1.15;
@@ -1556,15 +2782,15 @@ onUnmounted(() => {
 }
 
 .ie-stamp-swatch:hover {
-    background: #363c48;
-    border-color: #525b6a;
-    color: #fff;
+    background: var(--cloudtak-inset-hover-bg);
+    border-color: var(--cloudtak-hover-border);
+    color: var(--cloudtak-surface-color);
 }
 
 .ie-stamp-swatch.active {
-    background: rgba(61, 124, 240, 0.18);
-    border-color: rgba(91, 156, 255, 0.55);
-    color: #fff;
+    background: color-mix(in srgb, var(--tblr-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-primary) 60%, transparent);
+    color: var(--cloudtak-active-color);
 }
 
 .ie-stamp-swatch-number {
@@ -1576,7 +2802,7 @@ onUnmounted(() => {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #9aa3b2;
+    color: var(--tblr-secondary-color);
     margin-bottom: 10px;
 }
 
@@ -1584,40 +2810,98 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin-bottom: 4px;
 }
 
 .ie-range {
     width: 100%;
-    accent-color: #5b9cff;
+    accent-color: var(--tblr-primary);
     margin-bottom: 10px;
 }
 
 .ie-brush-preview {
     margin: 0 auto 12px;
     border-radius: 50%;
-    border: 1.5px solid #e8eaed;
-    box-shadow: 0 0 0 1px #111;
-    background: radial-gradient(circle at 35% 35%, #5a6270, #2c313a);
+    border: 1.5px solid var(--cloudtak-surface-color);
+    box-shadow: 0 0 0 1px var(--cloudtak-surface-bg);
+    background: var(--cloudtak-active-bg);
 }
 
 .ie-brush-value {
     text-align: center;
     font-size: 12px;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin-bottom: 8px;
 }
 
+.ie-seg {
+    display: flex;
+    margin-bottom: 12px;
+    border: 1px solid var(--cloudtak-surface-border);
+    border-radius: 999px;
+    overflow: hidden;
+}
+.ie-seg-btn {
+    appearance: none;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 5px 4px;
+    border: 0;
+    border-left: 1px solid var(--cloudtak-surface-border);
+    background: var(--cloudtak-inset-bg);
+    color: var(--tblr-secondary-color);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.ie-seg-btn:first-child {
+    border-left: 0;
+}
+.ie-seg-btn:hover {
+    background: var(--cloudtak-inset-hover-bg);
+    color: var(--cloudtak-surface-color);
+}
+.ie-seg-btn.active {
+    background: color-mix(in srgb, var(--tblr-primary) 28%, transparent);
+    color: var(--cloudtak-active-color);
+}
 .ie-hint {
     font-size: 11px;
     line-height: 1.4;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin: 0 0 10px;
 }
 
+.ie-tool-desc {
+    color: var(--cloudtak-surface-color);
+}
+
+.ie-root :focus-visible {
+    outline: 2px solid var(--tblr-primary);
+    outline-offset: 2px;
+}
+
+.ie-root:focus-visible {
+    outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ie-root,
+    .ie-root * {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+.ie-clear-pick {
+    width: 100%;
+    margin-bottom: 10px;
+}
 .ie-hint-muted {
-    color: #7d8696;
+    color: var(--tblr-secondary-color);
+    opacity: 0.85;
     margin-top: 18px;
 }
 
@@ -1657,19 +2941,19 @@ onUnmounted(() => {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    border: 1px solid #0f1115;
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-        0 0 0 1px #3a414d;
+        0 0 0 1px var(--cloudtak-surface-border);
 }
 
 .ie-swatch.empty {
-    background-color: #1b1e24;
+    background-color: var(--cloudtak-inset-bg);
     background-image:
-        linear-gradient(45deg, #3a414d 25%, transparent 25%),
-        linear-gradient(-45deg, #3a414d 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, #3a414d 75%),
-        linear-gradient(-45deg, transparent 75%, #3a414d 75%);
+        linear-gradient(45deg, var(--cloudtak-surface-border) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--cloudtak-surface-border) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--cloudtak-surface-border) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--cloudtak-surface-border) 75%);
     background-size: 8px 8px;
     background-position: 0 0, 0 4px, 4px -4px, -4px 0;
 }
@@ -1677,13 +2961,13 @@ onUnmounted(() => {
 .ie-swatch-caption {
     font-size: 11px;
     line-height: 1.3;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
 }
 
 .ie-modal-backdrop {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 6;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1695,8 +2979,9 @@ onUnmounted(() => {
     width: min(360px, calc(100vw - 32px));
     padding: 18px 18px 14px;
     border-radius: 10px;
-    background: #2a2f38;
-    border: 1px solid #3a414d;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
@@ -1710,13 +2995,306 @@ onUnmounted(() => {
     margin: 0 0 16px;
     font-size: 13px;
     line-height: 1.45;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
 }
 
 .ie-modal-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+/* Touch wording is hidden unless the primary pointer is coarse. */
+.ie-touch-hint,
+.ie-touch-only {
+    display: none;
+}
+
+.ie-toggle {
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--tblr-secondary-color);
+    cursor: pointer;
+}
+
+.ie-toggle input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--tblr-primary);
+}
+
+/*
+ * Readable type on phones and tablets: nothing visible below 12 px, hints and buttons larger.
+ * Desktop sizes above stay as they are.
+ */
+@media (pointer: coarse), (max-width: 768px) {
+    .ie-tool-desc {
+        font-size: 13px;
+    }
+    .ie-tool,
+    .ie-stamp-swatch,
+    .ie-opt-label,
+    .ie-range-labels,
+    .ie-brush-value,
+    .ie-swatch-caption,
+    .ie-toggle {
+        font-size: 12px;
+    }
+    .ie-seg-btn {
+        font-size: 13px;
+    }
+    .ie-hint,
+    .ie-modal-body {
+        font-size: 13px;
+    }
+    .ie-btn,
+    .ie-modal-title {
+        font-size: 14px;
+    }
+}
+
+@media (pointer: coarse) {
+    /* Shift / Ctrl / bracket / Space / wheel wording means nothing without a keyboard. */
+    .ie-kbd-hint,
+    .ie-fine-hint {
+        display: none;
+    }
+    .ie-touch-hint {
+        display: inline;
+    }
+    .ie-toggle.ie-touch-only {
+        display: flex;
+        min-height: 44px;
+    }
+    .ie-zoom-btn {
+        width: 44px;
+        height: 44px;
+    }
+    .ie-btn,
+    .ie-seg-btn {
+        min-height: 44px;
+    }
+}
+
+.ie-btn-square {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+}
+
+.ie-bar-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 14px;
+}
+
+.ie-topbar-compact {
+    display: flex;
+    gap: 4px;
+    /* 51 px + the 1 px border = a 52 px bar; the top safe-area inset is added on top. */
+    height: 51px;
+    padding: env(safe-area-inset-top, 0px) 8px 0;
+}
+
+.ie-top-save {
+    margin-left: auto;
+}
+
+.ie-menu-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+}
+
+.ie-menu {
+    position: absolute;
+    z-index: 5;
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    left: 8px;
+    min-width: 200px;
+    padding: 4px;
+    border-radius: 8px;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.ie-menu-item {
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ie-menu-item:hover:not(:disabled) {
+    background: var(--cloudtak-hover-bg);
+}
+
+.ie-menu-item:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.ie-sheet-head {
+    appearance: none;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 6px;
+    padding: 0;
+    border: 0;
+    background: inherit;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+/*
+ * Compact layout for phones and narrow windows: canvas on top, the active tool's
+ * options in a bottom sheet, tools in a strip underneath. The query must match
+ * COMPACT_QUERY in <script>; the desktop grid is not touched outside this block.
+ */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+    .ie-body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            'canvas'
+            'options'
+            'tools';
+    }
+
+    .ie-view {
+        grid-area: canvas;
+    }
+
+    .ie-zoom {
+        right: 8px;
+        bottom: 12px;
+    }
+
+    .ie-selection-bar {
+        bottom: 12px;
+    }
+
+    .ie-options {
+        grid-area: options;
+        max-height: 40dvh;
+        padding: 0 12px 12px;
+        border-left: 0;
+        border-top: 1px solid var(--cloudtak-surface-border);
+    }
+
+    .ie-options-collapsed {
+        padding-bottom: 0;
+    }
+
+    .ie-options-collapsed > :not(.ie-sheet-head) {
+        display: none;
+    }
+
+    .ie-range {
+        min-height: 44px;
+        margin-bottom: 0;
+    }
+
+    .ie-stamp-grid {
+        grid-template-columns: none;
+        grid-template-rows: repeat(2, auto);
+        grid-auto-flow: column;
+        grid-auto-columns: 92px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+
+    .ie-stamp-grid-numbers {
+        grid-template-rows: auto;
+        grid-auto-columns: 48px;
+    }
+
+    .ie-stamp-swatch-number {
+        min-height: 44px;
+    }
+
+    .ie-tools {
+        grid-area: tools;
+        flex-direction: row;
+        gap: 6px;
+        padding: 6px 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x proximity;
+        border-right: 0;
+        border-top: 1px solid var(--cloudtak-surface-border);
+    }
+
+    .ie-tool {
+        flex: 0 0 auto;
+        justify-content: center;
+        min-width: 56px;
+        min-height: 52px;
+        font-size: 12px;
+        scroll-snap-align: start;
+    }
+
+    @media (max-height: 500px) {
+        /* The canvas can be shorter than a vertical zoom stack when the sheet is open. */
+        .ie-zoom {
+            flex-direction: row;
+        }
+
+        .ie-body {
+            grid-template-columns: 76px minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr) auto;
+            grid-template-areas:
+                'tools canvas'
+                'tools options';
+        }
+
+        .ie-options {
+            max-height: 50dvh;
+        }
+
+        .ie-tools {
+            flex-direction: column;
+            gap: 4px;
+            padding: 6px 4px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            border-top: 0;
+            border-right: 1px solid var(--cloudtak-surface-border);
+        }
+
+        .ie-tool {
+            min-width: 0;
+            min-height: 46px;
+            padding: 4px 2px;
+            font-size: 12px;
+        }
+    }
 }
 </style>
 

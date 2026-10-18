@@ -1,79 +1,89 @@
 <template>
     <div class='d-flex align-items-center gap-1'>
-        <button
-            type='button'
-            class='btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1'
-            title='Undo (Ctrl+Z)'
+        <TablerIconButton
+            :title='undoTitle'
             :disabled='!sheetUi.canUndoTransform'
             @click='onUndo'
         >
-            <svg
-                viewBox='0 0 24 24'
-                width='15'
-                height='15'
-                aria-hidden='true'
-            >
-                <path
-                    fill='currentColor'
-                    d='M12.5 8c-2.6 0-5 1-6.9 2.6L3 8v8h8l-2.6-2.6A6.9 6.9 0 0 1 12.5 11c3 0 5.6 1.9 6.6 4.6l2.3-.8C20 11.3 16.5 8 12.5 8z'
-                />
-            </svg>
-            Undo
-        </button>
-        <button
-            type='button'
-            class='btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1'
-            title='Redo (Ctrl+Y)'
+            <IconArrowBackUp
+                :size='32'
+                stroke='1'
+            />
+        </TablerIconButton>
+        <TablerIconButton
+            :title='redoTitle'
             :disabled='!sheetUi.canRedoTransform'
             @click='onRedo'
         >
-            <svg
-                viewBox='0 0 24 24'
-                width='15'
-                height='15'
-                aria-hidden='true'
-            >
-                <path
-                    fill='currentColor'
-                    d='M11.5 8c2.6 0 5 1 6.9 2.6L21 8v8h-8l2.6-2.6A6.9 6.9 0 0 0 11.5 11c-3 0-5.6 1.9-6.6 4.6l-2.3-.8C4 11.3 7.5 8 11.5 8z'
-                />
-            </svg>
-            Redo
-        </button>
+            <IconArrowForwardUp
+                :size='32'
+                stroke='1'
+            />
+        </TablerIconButton>
         <button
+            v-if='sheetUi.hasSheet'
             type='button'
-            class='btn btn-sm btn-outline-secondary'
-            title='Remove the sheet, or close Rubber Sheet if none is loaded'
-            @click='onCancel'
+            class='btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1'
+            title='Remove Sheet'
+            aria-label='Remove Sheet'
+            @click='confirmRemove = true'
         >
-            Cancel
+            <IconTrash
+                :size='16'
+                stroke='1'
+            />
+            <span class='d-none d-sm-inline'>Remove Sheet</span>
         </button>
+        <RemoveSheetConfirm
+            v-if='confirmRemove'
+            @close='confirmRemove = false'
+            @confirm='onRemove'
+        />
     </div>
 </template>
 
 <script setup lang='ts'>
-import type { PluginAPI } from '@tak-ps/cloudtak';
+import { computed, ref } from 'vue';
+import { TablerIconButton } from '@tak-ps/vue-tabler';
+import { IconArrowBackUp, IconArrowForwardUp, IconTrash } from '@tabler/icons-vue';
+import { useAppStore } from '../../../src/stores/app.ts';
+import { touchWording } from './device.ts';
+import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import { clearSheet, redoSheetTransform, undoSheetTransform } from './sheet.ts';
 import { sheetUi } from './ui-state.ts';
 
-const props = defineProps<{
-    api: PluginAPI;
-}>();
+const confirmRemove = ref(false);
 
+// Keyboard shortcuts are only mentioned where there is a keyboard.
+const appStore = useAppStore();
+const touch = computed(() => touchWording(appStore.isMobileDetected));
+const undoTitle = computed(() => touch.value ? 'Undo' : 'Undo (Ctrl+Z)');
+const redoTitle = computed(() => touch.value ? 'Redo' : 'Redo (Ctrl+Y)');
+
+// TablerIconButton still emits click while disabled.
 function onUndo(): void {
-    undoSheetTransform();
+    if (sheetUi.canUndoTransform) undoSheetTransform();
 }
 
 function onRedo(): void {
-    redoSheetTransform();
+    if (sheetUi.canRedoTransform) redoSheetTransform();
 }
 
-function onCancel(): void {
-    if (sheetUi.hasSheet) {
-        void clearSheet();
-        return;
-    }
-    const { router } = props.api;
-    void router.push('/');
+function onRemove(): void {
+    confirmRemove.value = false;
+    void clearSheet();
 }
 </script>
+
+<style scoped>
+@media (pointer: coarse) {
+    .btn,
+    :deep([role='button']) {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+</style>

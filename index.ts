@@ -2,10 +2,12 @@ import type { App } from 'vue';
 import { h } from 'vue';
 import type { PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
 import HeaderButtons from './lib/HeaderButtons.vue';
-import MenuTemplate from './lib/MenuTemplate.vue';
+// Host component (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
+import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
+import EditorRoute from './lib/EditorRoute.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
 import { IconRubberSheet } from './lib/icon.ts';
-import { MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
+import { EDIT_ROUTE_NAME, EDIT_ROUTE_PATH, MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
 import { bind, detach } from './lib/sheet.ts';
 
 export default class RubberSheet implements PluginInstance {
@@ -22,9 +24,16 @@ export default class RubberSheet implements PluginInstance {
             component: {
                 render: () => h(MenuTemplate, { name: 'Rubber Sheet', back: false }, {
                     default: () => h(RubberSheetPane, { api: this.api }),
-                    buttons: () => h(HeaderButtons, { api: this.api }),
+                    buttons: () => h(HeaderButtons),
                 }),
             },
+        }, 'home-menu');
+        // The image editor is its own full-screen route so Back leaves it before the pane.
+        // It does not use MenuTemplate (that would show a blurred menu modal on phones).
+        this.api.routes.add({
+            path: EDIT_ROUTE_PATH,
+            name: EDIT_ROUTE_NAME,
+            component: EditorRoute,
         }, 'home-menu');
     }
 

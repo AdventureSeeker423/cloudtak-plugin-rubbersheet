@@ -44,17 +44,16 @@ function onWheel(event: WheelEvent): void {
 </script>
 
 <style scoped>
+/* No surface of its own: it sits on the host panel, so both themes come from the host. */
 .rubber-opacity {
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 2px;
-    height: 48px;
-    padding: 4px 14px 6px;
-    border-radius: 8px;
-    background: rgba(20, 24, 28, 0.92);
-    color: #fff;
-    min-width: 280px;
+    width: 100%;
+    padding: 0;
+    background: transparent;
+    color: inherit;
     user-select: none;
 }
 
@@ -66,14 +65,21 @@ function onWheel(event: WheelEvent): void {
 
 .rubber-opacity-range {
     flex: 1 1 auto;
-    width: 180px;
-    accent-color: #206bc4;
+    min-width: 0;
+    min-height: 24px;
+    accent-color: var(--tblr-primary);
 }
 
 .rubber-opacity-label {
     font-size: 0.75rem;
     text-align: center;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--tblr-secondary-color, var(--tblr-secondary));
     line-height: 1.1;
+}
+
+@media (pointer: coarse) {
+    .rubber-opacity-range {
+        min-height: 44px;
+    }
 }
 </style>
