@@ -994,7 +994,7 @@ export function closePagePicker(): void {
 }
 
 async function currentFile(): Promise<{ filename: string; bytes: Uint8Array; mime: string }> {
-    if (!source || !quad || !sheetUi.exportType) throw new Error('Choose an export file type');
+    if (!source || !quad || !sheetUi.exportType) throw new Error('Choose a format');
     sheetUi.status = 'Building the export…';
     await new Promise((resolve) => {
         setTimeout(resolve, 0);
