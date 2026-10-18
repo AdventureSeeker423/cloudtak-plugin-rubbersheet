@@ -170,7 +170,13 @@ const touchCapable = typeof window !== 'undefined' && (
 );
 
 // Same "More" toggle as the host DrawOverlay on phones. Open in portrait so the warp mode is in reach, collapsed in landscape.
-const opened = ref(typeof window === 'undefined' || window.innerHeight > 576);
+// The choice lives in sheetUi so it survives the bar being rebuilt after another plugin's panel closes.
+const opened = computed({
+    get: () => sheetUi.barMore ?? (typeof window === 'undefined' || window.innerHeight > 576),
+    set: (value: boolean) => {
+        sheetUi.barMore = value;
+    },
+});
 const confirmRemove = ref(false);
 
 /** A pure mouse desktop keeps the opacity slider only; touch and small screens get the full bar. */

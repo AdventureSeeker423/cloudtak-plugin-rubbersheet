@@ -20,6 +20,23 @@ Chrome DevTools device mode, touch emulation on, at 360×800, 390×844, 844×390
 * Keyboard only on desktop: Tab stays inside the editor, dialogs open on **Keep editing**, Esc closes them, focus returns to **Edit Image**.
 * With the OS setting "Reduce motion" on, the selection outline holds still.
 
+## Panel contract checks
+Needs the Weather plugin (or any plugin that follows the panel contract) enabled next to Rubber Sheet. There is no combined automated harness yet, so these are manual. Run them at 390×844 and 844×390 with touch emulation, at 1280×800 with a mouse, in Light and Dark. In each scenario at most one bottom panel is visible and nothing overflows the screen sideways.
+* **Minimize.** Place a sheet, drag a corner, Undo once, set opacity 60. Open the Weather panel: the Adjust bar disappears, the handles stay on the map and stay draggable, the Rubber Sheet menu icon shows a dot, its tooltip reads "Rubber Sheet, controls hidden" and a screen reader says "Controls hidden." before the label.
+* **Restore on close.** Close Weather (button, then Escape): the bar returns with Undo enabled, opacity 60 and the same Done / Adjust and "Show settings" choice. No restore happens when Weather is not the one that closed.
+* **Weather opened second.** Open Weather first, then load a sheet from the pane: Weather closes and the bar shows; the Weather layers stay on the map.
+* **Restore from the menu.** Minimize, then tap the Rubber Sheet entry: the pane opens, the bar is back and Weather has closed. Repeat with **Show Adjust bar** in the pane (the notice reads "The Adjust bar is hidden while another plugin is open.").
+* **Back from the image editor.** Minimize, open the pane, tap Edit Image, then come back with Back or Save: the bar stays hidden, the notice and **Show Adjust bar** show, and Weather stays open (no `panel-open` from Rubber Sheet).
+* **Basemap change.** Minimize, change the basemap (style reload): the bar stays hidden.
+* **Remove Sheet while minimized.** The dot clears; closing Weather afterwards does not bring a bar back.
+* **Move mode.** Turn Move on, then open Weather: Move is off afterwards and a one-finger drag pans the map.
+* **Three plugins.** With a third bottom-panel plugin: one without state that opens after Weather makes Weather close while the bar stays hidden, and closing the third restores the bar. Plugins that all keep state (A minimized for B, B minimized for C) restore in reverse order: closing C brings B back, closing B brings A back. A plain panel-open from another plugin never changes whom a minimized plugin waits for.
+* **Restore from the menu in a deeper stack.** A minimized for B, B for C (no state, so it closes when asked): tap the Rubber Sheet entry (A). C closes and B stays hidden; closing A brings B back. The restore from the menu is the only open that makes a minimized plugin wait for a new plugin (`restored: true`).
+* **Disable.** Minimize, then disable and re-enable the plugin that holds the panel open: the bar returns and the dot is gone. Disabling Rubber Sheet while minimized leaves no stuck dot.
+* **Alone.** Rubber Sheet alone, and next to a plugin that does not know the contract, behaves as before (no hidden bar).
+* **Desktop rail.** The dot shows on the Rubber Sheet icon in the rail. With the entry set to hidden in the menu settings there is no dot; the pane notice still shows.
+* **Accessibility.** The dot is not the only signal (title and hidden text). In forced-colors mode the dot stays visible. Keyboard: Tab to the menu entry and press Enter to restore. The dot ring matches the rail background in Light and in Dark (no dark ring on the light rail).
+Real device: the dot, the pane notice and tap-to-restore on one Android phone and one iPhone.
 Headless emulation cannot show real finger size, safe-area insets, native sharing or the CloudTAK apps' login, so the list below needs a person with a device.
 
 ## Real-device checklist
