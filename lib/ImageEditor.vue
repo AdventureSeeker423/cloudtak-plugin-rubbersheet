@@ -249,6 +249,8 @@
                     :data-ie-scale='scale'
                     :data-ie-pan-x='panX'
                     :data-ie-pan-y='panY'
+                    :data-ie-stamps='stampCount'
+                    :data-ie-ghost='pendingStamp ? `${Math.round(pendingStamp.x)},${Math.round(pendingStamp.y)}` : undefined'
                     @wheel.prevent='onWheel'
                     @pointerdown='onPointerDown'
                     @pointermove='onPointerMove'
@@ -337,6 +339,54 @@
                                 />
                             </svg>
                             Deselect
+                        </button>
+                    </div>
+                    <div
+                        v-if='pendingStamp || selectedStamp'
+                        class='ie-selection-bar'
+                        role='group'
+                        aria-label='Icon actions'
+                        @pointerdown.stop
+                        @wheel.stop
+                    >
+                        <template v-if='pendingStamp'>
+                            <button
+                                type='button'
+                                class='ie-btn ie-btn-icon ie-btn-save ie-bar-btn'
+                                title='Place the icon here'
+                                @click='commitPendingStamp'
+                            >
+                                <IconCheck
+                                    :size='20'
+                                    stroke='1.5'
+                                />
+                                Place
+                            </button>
+                            <button
+                                type='button'
+                                class='ie-btn ie-btn-icon ie-bar-btn'
+                                title='Discard the icon'
+                                @click='discardPendingStamp'
+                            >
+                                <IconX
+                                    :size='20'
+                                    stroke='1.5'
+                                />
+                                Discard
+                            </button>
+                        </template>
+                        <button
+                            v-else
+                            type='button'
+                            class='ie-btn ie-btn-icon ie-btn-danger ie-bar-btn'
+                            title='Remove the selected icon'
+                            @click='removeSelectedStamp'
+                        >
+                            <IconTrash
+                                :size='20'
+                                stroke='1.5'
+                            />
+                            Remove icon
                         </button>
                     </div>
                 </div>
@@ -534,13 +584,11 @@
                         </button>
                         <p class='ie-hint'>
                             Pick an icon, then
-                            <span class='ie-fine-hint'>click</span>
-                            <span class='ie-touch-hint'>tap</span>
-                            to place.
-                            <span class='ie-kbd-hint'>Esc clears the pick.</span>
-                            <span class='ie-fine-hint'>Click</span>
-                            <span class='ie-touch-hint'>Tap</span>
-                            a placed icon to remove.
+                            <span class='ie-fine-hint'>click to place. </span>
+                            <span class='ie-touch-hint'>tap to preview it. Drag the preview to move it, then tap Place. </span>
+                            <span class='ie-kbd-hint'>Esc clears the pick. </span>
+                            <span class='ie-fine-hint'>Click a placed icon to remove. </span>
+                            <span class='ie-touch-hint'>Tap a placed icon to select it, then tap Remove icon.</span>
                             <span class='ie-kbd-hint'>[ ] size · Shift twice as fast.</span>
                         </p>
                     </template>
@@ -693,6 +741,7 @@ import {
     IconChevronUp,
     IconDots,
     IconHandStop,
+    IconTrash,
     IconX,
     IconZoomIn,
     IconZoomOut,
@@ -785,7 +834,14 @@ const confirmRevert = ref(false);
 const confirmDiscard = ref(false);
 /** Net number of edits since the editor opened (undo subtracts, redo adds). Not the undo depth, which stops at the cap. */
 const editSeq = ref(0);
-const dirty = computed(() => editSeq.value !== 0);
+/**
+ * Touch only: an icon being positioned. It is not part of the picture (or the undo history)
+ * until Place is tapped. Mouse and pen place immediately.
+ */
+const pendingStamp = ref<{ kind: StampKind; x: number; y: number; size: number } | null>(null);
+/** Touch only: id of the placed icon the Remove button acts on. */
+const selectedStampId = ref<number | null>(null);
+const dirty = computed(() => editSeq.value !== 0 || pendingStamp.value !== null);
 const compactQuery = window.matchMedia(COMPACT_QUERY);
 const landscapeQuery = window.matchMedia(LANDSCAPE_QUERY);
 const compact = ref(compactQuery.matches);
@@ -844,12 +900,27 @@ let stampFuture: PlacedStamp[][] = props.history
     ? Array.from({ length: editHistory.redoCount }, () => [])
     : [];
 let nextStampId = 1;
+// stamps is not reactive, so the selected icon is looked up when the bar is drawn.
+const stampCount = computed(() => {
+    void editSeq.value;
+    return stamps.length;
+});
+const selectedStamp = computed(() => {
+    void editSeq.value;
+    void selectedStampId.value;
+    return selectedStampId.value === null
+        ? null
+        : stamps.find((stamp) => stamp.id === selectedStampId.value) ?? null;
+});
 /** What to do when the user confirms the Discard dialog. */
 let onDiscard: (() => void) | null = null;
 
 /** Zoom button step, and how far above the finger the offset cursor sits. */
 const ZOOM_STEP = 1.25;
 const OFFSET_CURSOR_PX = 60;
+/** A fingertip hits a placed icon within this many screen pixels, and grabs the preview within this extra margin. */
+const STAMP_TOUCH_PX = 22;
+const GHOST_GRAB_PX = 12;
 const FIT_PAD = 40;
 const FIT_PAD_COMPACT = 12;
 /** Two taps this close in time and space count as a double-tap. */
@@ -879,6 +950,8 @@ let fingerClientX = 0;
 let fingerClientY = 0;
 
 let dragging = false;
+/** Finger offset (image units) while dragging the touch stamp preview. */
+let ghostDrag: { dx: number; dy: number } | null = null;
 let panning = false;
 let strokeActive = false;
 let lastBrushX = 0;
@@ -1013,6 +1086,11 @@ function applyColorSelection(): void {
 }
 
 function setTool(next: Tool): void {
+    if (tool.value === 'stamp' && next !== 'stamp') {
+        // A preview on screen is placed rather than silently lost; undo is available.
+        commitPendingStamp();
+        selectedStampId.value = null;
+    }
     tool.value = next;
     if (compact.value && !landscape.value) optionsOpen.value = true;
     rectDrag = null;
@@ -1171,27 +1249,95 @@ function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: 
     return { x: cx + padLeft, y: cy + padTop };
 }
 
-function placeOrRemoveStamp(x: number, y: number): void {
-    const hit = hitTestStamp(stamps, x, y);
-    if (hit) {
-        pushEdit();
-        stamps = stamps.filter((stamp) => stamp.id !== hit.id);
-    } else {
-        const kind = stampKind.value;
-        if (!kind) return;
-        const at = ensureStampFits(x, y, stampSize.value);
-        pushEdit();
-        stamps.push({
-            id: nextStampId++,
-            kind,
-            x: at.x,
-            y: at.y,
-            size: stampSize.value,
-        });
-    }
+/** Add a stamp (growing the canvas if it hangs over the edge). One undo step. */
+function addStamp(kind: StampKind, x: number, y: number, size: number): void {
+    const at = ensureStampFits(x, y, size);
+    pushEdit();
+    stamps.push({ id: nextStampId++, kind, x: at.x, y: at.y, size });
     writeWorking();
     syncHistoryFlags();
     paint();
+}
+
+/** Remove a placed stamp. One undo step. */
+function removeStamp(id: number): void {
+    pushEdit();
+    stamps = stamps.filter((stamp) => stamp.id !== id);
+    writeWorking();
+    syncHistoryFlags();
+    paint();
+}
+
+/** Mouse and pen: place at once, or remove the stamp under the pointer. */
+function placeOrRemoveStamp(x: number, y: number): void {
+    const hit = hitTestStamp(stamps, x, y);
+    if (hit) {
+        removeStamp(hit.id);
+        return;
+    }
+    const kind = stampKind.value;
+    if (kind) addStamp(kind, x, y, stampSize.value);
+}
+
+/** Touch: the nearest placed stamp under a fingertip (small stamps get a 22 px screen radius). */
+function stampUnderFinger(x: number, y: number): PlacedStamp | null {
+    let best: PlacedStamp | null = null;
+    let bestDist = Infinity;
+    for (const stamp of stamps) {
+        const dist = Math.hypot(x - stamp.x, y - stamp.y);
+        const radius = Math.max(stamp.size * 0.55, STAMP_TOUCH_PX / scale.value);
+        if (dist <= radius && dist < bestDist) {
+            best = stamp;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+/** Touch tap with the Icons tool: select a placed icon, or move/create the preview. */
+function touchStampTap(x: number, y: number): void {
+    if (pendingStamp.value) {
+        pendingStamp.value = { ...pendingStamp.value, x, y };
+        paint();
+        return;
+    }
+    const hit = stampUnderFinger(x, y);
+    if (hit) {
+        selectedStampId.value = hit.id;
+    } else if (selectedStampId.value !== null) {
+        selectedStampId.value = null;
+    } else if (stampKind.value) {
+        pendingStamp.value = { kind: stampKind.value, x, y, size: stampSize.value };
+    }
+    paint();
+}
+
+function commitPendingStamp(): void {
+    const pending = pendingStamp.value;
+    if (!pending) return;
+    pendingStamp.value = null;
+    ghostDrag = null;
+    addStamp(pending.kind, pending.x, pending.y, pending.size);
+}
+
+function discardPendingStamp(): void {
+    pendingStamp.value = null;
+    ghostDrag = null;
+    paint();
+}
+
+function removeSelectedStamp(): void {
+    const id = selectedStampId.value;
+    selectedStampId.value = null;
+    if (id !== null && stamps.some((stamp) => stamp.id === id)) removeStamp(id);
+    else paint();
+}
+
+/** Undo, redo and revert change the stamp list under the preview and the selection. */
+function clearStampTouchState(): void {
+    pendingStamp.value = null;
+    selectedStampId.value = null;
+    ghostDrag = null;
 }
 
 /** Bake session stamps into the pixel buffer (used on Save). */
@@ -1201,6 +1347,13 @@ function bakeStamps(): void {
         stampIntoRgba(rgba, width, height, stamp.kind, stamp.x, stamp.y, stamp.size);
     }
     stamps = [];
+}
+
+/** The host primary colour for the stamp rings; the canvas cannot use CSS variables directly. */
+function primaryColor(): string {
+    const root = rootEl.value;
+    const value = root ? getComputedStyle(root).getPropertyValue('--tblr-primary').trim() : '';
+    return value || '#4d8dff';
 }
 
 function paint(): void {
@@ -1275,7 +1428,7 @@ function paint(): void {
         ctx.fillRect(left, top, rw, rh);
     }
 
-    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown && gesture !== 'pinch') {
+    if (tool.value === 'stamp' && pointerInView && !panning && !spaceDown && gesture === 'none') {
         const hover = viewToImage(hoverClientX, hoverClientY);
         if (hover) {
             const hit = hitTestStamp(stamps, hover.x, hover.y);
@@ -1290,6 +1443,26 @@ function paint(): void {
             } else if (stampKind.value) {
                 drawStampAt(ctx, stampKind.value, hover.x, hover.y, stampSize.value, 0.55);
             }
+        }
+    }
+    if (tool.value === 'stamp') {
+        const ring = primaryColor();
+        const pending = pendingStamp.value;
+        const chosen = selectedStamp.value;
+        if (pending) {
+            drawStampAt(ctx, pending.kind, pending.x, pending.y, pending.size, 0.55);
+            ctx.beginPath();
+            ctx.arc(pending.x, pending.y, pending.size * 0.55, 0, Math.PI * 2);
+        } else if (chosen) {
+            ctx.beginPath();
+            ctx.arc(chosen.x, chosen.y, chosen.size * 0.55, 0, Math.PI * 2);
+        }
+        if (pending || chosen) {
+            ctx.strokeStyle = ring;
+            ctx.lineWidth = Math.max(1.5 / scale.value, 2 / scale.value);
+            ctx.setLineDash([4 / scale.value, 3 / scale.value]);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     }
     ctx.restore();
@@ -1489,6 +1662,7 @@ function cancelInProgress(): void {
     rectDrag = null;
     strokeActive = false;
     dragging = false;
+    ghostDrag = null;
     panning = false;
 }
 
@@ -1601,6 +1775,17 @@ function onTouchDown(event: PointerEvent, target: HTMLElement): void {
         return;
     }
 
+    if (tool.value === 'stamp' && pendingStamp.value) {
+        // A finger on the preview drags it; anywhere else it is a tap and acts on release.
+        const point = viewToImage(event.clientX, event.clientY);
+        const ghost = pendingStamp.value;
+        if (point && Math.hypot(point.x - ghost.x, point.y - ghost.y) * scale.value
+            <= (ghost.size * scale.value) / 2 + GHOST_GRAB_PX) {
+            ghostDrag = { dx: ghost.x - point.x, dy: ghost.y - point.y };
+            dragging = true;
+        }
+    }
+
     // Wand, Selective Color and Icons act on release so a pinch never selects or places.
     paint();
 }
@@ -1650,17 +1835,32 @@ function onTouchMove(event: PointerEvent): void {
         return;
     }
 
-    if (tool.value === 'stamp') schedulePaint();
+    if (tool.value === 'stamp') {
+        if (ghostDrag && pendingStamp.value) {
+            const point = viewToImage(event.clientX, event.clientY);
+            if (point) {
+                pendingStamp.value = {
+                    ...pendingStamp.value,
+                    x: point.x + ghostDrag.dx,
+                    y: point.y + ghostDrag.dy,
+                };
+            }
+        }
+        schedulePaint();
+    }
 }
 
 /** One finger was lifted with the tool still in charge: commit or fire the tap action. */
 function finishTouchTool(pointer: TouchPointer, up: { x: number; y: number; t: number }): void {
     const tapped = isTap({ x: pointer.startX, y: pointer.startY, t: pointer.t }, up);
     if (rectDrag) finishRectDrag();
+    const draggedGhost = ghostDrag !== null;
+    ghostDrag = null;
     dragging = false;
     panning = false;
     strokeActive = false;
-    if (!tapped) return;
+    // Releasing the preview after dragging (or just holding it) is not a tap.
+    if (!tapped || draggedGhost) return;
 
     const point = viewToImage(up.x, up.y);
     if (!point) return;
@@ -1681,7 +1881,7 @@ function finishTouchTool(pointer: TouchPointer, up: { x: number; y: number; t: n
 
     if (tool.value === 'wand' && inside) selectAt(point, selectionMode.value);
     else if (tool.value === 'color' && inside) pickColorAt(point);
-    else if (tool.value === 'stamp') placeOrRemoveStamp(point.x, point.y);
+    else if (tool.value === 'stamp') touchStampTap(point.x, point.y);
 }
 
 function releaseTouch(event: PointerEvent, cancelled: boolean): void {
@@ -1881,6 +2081,7 @@ function onPointerLeave(event: PointerEvent): void {
 
 function doUndo(): void {
     if (!editHistory.canUndo) return;
+    clearStampTouchState();
     stampFuture.push(cloneStamps(stamps));
     stamps = stampPast.pop() ?? [];
     if (!editHistory.undo(rgba)) {
@@ -1897,6 +2098,7 @@ function doUndo(): void {
 
 function doRedo(): void {
     if (!editHistory.canRedo) return;
+    clearStampTouchState();
     stampPast.push(cloneStamps(stamps));
     stamps = stampFuture.pop() ?? [];
     if (!editHistory.redo(rgba)) {
@@ -1918,6 +2120,7 @@ function revertToOriginal(): void {
         syncHistoryFlags();
         return;
     }
+    clearStampTouchState();
     pushEdit();
     rgba.set(original);
     stamps = [];
@@ -1963,6 +2166,17 @@ function onKeyDown(event: KeyboardEvent): void {
     }
 
     if (event.key === 'Escape') {
+        if (tool.value === 'stamp' && pendingStamp.value) {
+            event.preventDefault();
+            discardPendingStamp();
+            return;
+        }
+        if (tool.value === 'stamp' && selectedStampId.value !== null) {
+            event.preventDefault();
+            selectedStampId.value = null;
+            paint();
+            return;
+        }
         if (tool.value === 'stamp' && stampKind.value) {
             event.preventDefault();
             stampKind.value = null;
@@ -2070,6 +2284,7 @@ function onCancelClick(): void {
 defineExpose({ dirty, requestDiscard });
 
 function emitApply(): void {
+    commitPendingStamp();
     bakeStamps();
     writeWorking();
     const out = document.createElement('canvas');
@@ -2093,6 +2308,13 @@ function antsLoop(now: number): void {
 }
 
 watch([brushSize, stampSize, stampKind, tool], () => {
+    const pending = pendingStamp.value;
+    if (pending) {
+        // Changing the icon or its size updates the preview; clearing the pick drops it.
+        pendingStamp.value = stampKind.value
+            ? { ...pending, kind: stampKind.value, size: stampSize.value }
+            : null;
+    }
     paint();
 });
 
@@ -2705,6 +2927,13 @@ onUnmounted(() => {
     width: 44px;
     height: 44px;
     padding: 0;
+}
+
+.ie-bar-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 14px;
 }
 
 .ie-topbar-compact {
