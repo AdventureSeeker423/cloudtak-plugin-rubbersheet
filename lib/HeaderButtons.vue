@@ -43,10 +43,11 @@
 </template>
 
 <script setup lang='ts'>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { TablerIconButton } from '@tak-ps/vue-tabler';
 import { IconArrowBackUp, IconArrowForwardUp, IconTrash } from '@tabler/icons-vue';
-import { isCoarsePointer } from './device.ts';
+import { useAppStore } from '../../../src/stores/app.ts';
+import { touchWording } from './device.ts';
 import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import { clearSheet, redoSheetTransform, undoSheetTransform } from './sheet.ts';
 import { sheetUi } from './ui-state.ts';
@@ -54,9 +55,10 @@ import { sheetUi } from './ui-state.ts';
 const confirmRemove = ref(false);
 
 // Keyboard shortcuts are only mentioned where there is a keyboard.
-const coarse = isCoarsePointer();
-const undoTitle = coarse ? 'Undo' : 'Undo (Ctrl+Z)';
-const redoTitle = coarse ? 'Redo' : 'Redo (Ctrl+Y)';
+const appStore = useAppStore();
+const touch = computed(() => touchWording(appStore.isMobileDetected));
+const undoTitle = computed(() => touch.value ? 'Undo' : 'Undo (Ctrl+Z)');
+const redoTitle = computed(() => touch.value ? 'Redo' : 'Redo (Ctrl+Y)');
 
 // TablerIconButton still emits click while disabled.
 function onUndo(): void {

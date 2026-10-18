@@ -446,7 +446,8 @@ function onSheetKeyDown(event: KeyboardEvent): void {
     }
     // Image editor owns Ctrl+Z while open.
     if (document.body.classList.contains('rubber-ie-open')) return;
-    if (!sheetUi.hasSheet || !quad) return;
+    // A locked sheet (handles hidden) ignores undo/redo, like its Adjust bar.
+    if (!sheetUi.hasSheet || !quad || !sheetUi.adjusting) return;
 
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) return;

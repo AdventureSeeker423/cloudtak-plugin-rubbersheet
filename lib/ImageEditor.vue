@@ -91,7 +91,7 @@
                         type='button'
                         class='ie-btn ie-btn-icon'
                         :disabled='!canUndo'
-                        title='Undo (Ctrl+Z)'
+                        :title='undoTitle'
                         @click='doUndo'
                     >
                         <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -106,7 +106,7 @@
                         type='button'
                         class='ie-btn ie-btn-icon'
                         :disabled='!canRedo'
-                        title='Redo (Ctrl+Y)'
+                        :title='redoTitle'
                         @click='doRedo'
                     >
                         <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -336,7 +336,7 @@
                         <button
                             type='button'
                             class='ie-btn ie-btn-icon'
-                            title='Deselect (Esc / Ctrl+D)'
+                            :title='deselectTitle'
                             @click='clearSelection'
                         >
                             <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
@@ -472,8 +472,8 @@
                             </button>
                         </div>
                         <p class='ie-hint'>
-                            <span class='ie-fine-hint'>Click to select.</span>
-                            <span class='ie-touch-hint'>Tap to select. Two fingers pan and zoom.</span>
+                            <span class='ie-fine-hint'>Click to select. </span>
+                            <span class='ie-touch-hint'>Tap to select. Two fingers pan and zoom. </span>
                             <span class='ie-kbd-hint'>Shift add · Ctrl subtract.</span>
                             Then Delete.
                         </p>
@@ -595,7 +595,7 @@
                             v-if='stampKind'
                             type='button'
                             class='ie-btn ie-clear-pick'
-                            title='Stop placing icons (Esc)'
+                            :title='stopPlacingTitle'
                             @click='clearStampPick'
                         >
                             Clear pick
@@ -765,7 +765,7 @@ import {
     IconZoomIn,
     IconZoomOut,
 } from '@tabler/icons-vue';
-import { editHistoryCap, maxImageSide } from './device.ts';
+import { editHistoryCap, maxImageSide, touchWording } from './device.ts';
 import { EditHistory, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
@@ -883,6 +883,12 @@ let selectionMask = new Uint8Array(width * height);
 let selectionScratch = new Uint8Array(width * height);
 /** Undo depth and the longest image side depend on the device (see device.ts). */
 const historyCap = editHistoryCap();
+// Keyboard shortcuts are only mentioned where there is a keyboard.
+const touch = touchWording();
+const undoTitle = touch ? 'Undo' : 'Undo (Ctrl+Z)';
+const redoTitle = touch ? 'Redo' : 'Redo (Ctrl+Y)';
+const deselectTitle = touch ? 'Deselect' : 'Deselect (Esc / Ctrl+D)';
+const stopPlacingTitle = touch ? 'Stop placing icons' : 'Stop placing icons (Esc)';
 const editHistory = new EditHistory(historyCap);
 
 const working = document.createElement('canvas');
@@ -976,6 +982,8 @@ let dragging = false;
 let ghostDrag: { dx: number; dy: number } | null = null;
 let panning = false;
 let strokeActive = false;
+/** Redo frames and stamps that beginStroke() cleared, kept until the stroke ends in case it is rolled back. */
+let strokeSavedFuture: { frames: Uint8Array[]; stamps: PlacedStamp[][] } | null = null;
 let lastBrushX = 0;
 let lastBrushY = 0;
 let panStartX = 0;
@@ -1643,6 +1651,7 @@ function pickColorAt(point: { x: number; y: number }): void {
 
 /** Eraser: snapshot for undo, then dab at the first point. */
 function beginStroke(point: { x: number; y: number }): void {
+    strokeSavedFuture = { frames: editHistory.exportSnapshot({ copy: false }).future, stamps: stampFuture };
     pushEdit();
     strokeActive = true;
     lastBrushX = point.x;
@@ -1685,14 +1694,16 @@ function isInsideImage(point: { x: number; y: number }): boolean {
  * (including its undo snapshot) and drop a marquee without selecting.
  */
 function cancelInProgress(): void {
-    if (strokeActive && editHistory.rollback(rgba)) {
+    if (strokeActive && editHistory.rollback(rgba, strokeSavedFuture?.frames)) {
         stampPast.pop();
+        if (strokeSavedFuture) stampFuture = strokeSavedFuture.stamps;
         editSeq.value -= 1;
         writeWorking();
         syncHistoryFlags();
     }
     rectDrag = null;
     strokeActive = false;
+    strokeSavedFuture = null;
     dragging = false;
     ghostDrag = null;
     panning = false;
@@ -1891,6 +1902,7 @@ function finishTouchTool(pointer: TouchPointer, up: { x: number; y: number; t: n
     dragging = false;
     panning = false;
     strokeActive = false;
+    strokeSavedFuture = null;
     // Releasing the preview after dragging (or just holding it) is not a tap.
     if (!tapped || draggedGhost) return;
 
@@ -2080,6 +2092,7 @@ function onPointerUp(event: PointerEvent): void {
     dragging = false;
     panning = false;
     strokeActive = false;
+    strokeSavedFuture = null;
     paint();
 }
 

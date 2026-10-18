@@ -320,7 +320,7 @@ import {
 import SlideDownHeader from '../../../src/components/CloudTAK/util/SlideDownHeader.vue';
 import { useAppStore } from '../../../src/stores/app.ts';
 import DataSyncPicker from './DataSyncPicker.vue';
-import { isCoarsePointer } from './device.ts';
+import { touchWording as useTouchWording } from './device.ts';
 import PdfPagePicker from './PdfPagePicker.vue';
 import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import WarpModeStrip from './WarpModeStrip.vue';
@@ -365,7 +365,7 @@ const exportOpen = section('export', () => !appStore.isMobileDetected);
 const helpOpen = section('help', () => false);
 
 /** Keyboard keys are never mentioned on a touch screen or a phone-sized window. */
-const touchWording = computed(() => isCoarsePointer() || appStore.isMobileDetected);
+const touchWording = computed(() => useTouchWording(appStore.isMobileDetected));
 
 const formats = [
     { value: 'kmz', label: 'KMZ' },

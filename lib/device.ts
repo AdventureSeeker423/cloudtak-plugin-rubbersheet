@@ -12,6 +12,13 @@ export function isCoarsePointer(): boolean {
         && window.matchMedia('(pointer: coarse)').matches;
 }
 
+/**
+ * True when keyboard wording (shortcuts, Shift/Ctrl hints) should be replaced by touch wording.
+ * Pass the host's `isMobileDetected` where the layout also follows the narrow-window mobile mode.
+ */
+export function touchWording(mobileDetected = false): boolean {
+    return isCoarsePointer() || mobileDetected;
+}
 /** Longest side an image is loaded and edited at. Smaller on phones and tablets to save memory. */
 export function maxImageSide(): number {
     return isCoarsePointer() ? MAX_IMAGE_SIDE_COARSE : MAX_IMAGE_SIDE_DESKTOP;

@@ -101,12 +101,14 @@ export class EditHistory {
     /**
      * Drop the newest undo snapshot and restore it into `target`.
      * Unlike undo(), nothing is pushed onto redo: the edit never happened.
+     * Pass the redo frames from before the push() to bring them back, since push() clears redo.
      */
-    rollback(target: Uint8Array): boolean {
+    rollback(target: Uint8Array, future?: Uint8Array[]): boolean {
         if (!this.past.length || target.length !== this.past[this.past.length - 1].length) {
             return false;
         }
         target.set(this.past.pop()!);
+        if (future) this.future = future;
         return true;
     }
     redo(target: Uint8Array): boolean {

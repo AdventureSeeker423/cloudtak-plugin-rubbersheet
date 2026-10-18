@@ -108,6 +108,23 @@ test('rollback restores the pre-edit buffer without creating redo', () => {
     assert.equal(history.canRedo, false);
     assert.equal(history.canUndo, false);
 });
+test('rollback can restore the redo stack that push cleared', () => {
+    const history = new EditHistory();
+    const pixels = buf(1);
+    history.push(pixels);
+    pixels.fill(2);
+    history.undo(pixels);
+    assert.equal(history.redoCount, 1);
+    const future = history.exportSnapshot({ copy: false }).future;
+    history.push(pixels);
+    assert.equal(history.canRedo, false);
+    pixels.fill(7);
+    assert.equal(history.rollback(pixels, future), true);
+    assert.deepEqual(pixels, buf(1));
+    assert.equal(history.redoCount, 1);
+    assert.equal(history.redo(pixels), true);
+    assert.deepEqual(pixels, buf(2));
+});
 test('rollback only drops the newest snapshot', () => {
     const history = new EditHistory();
     const pixels = buf(1);
