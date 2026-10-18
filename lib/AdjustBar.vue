@@ -108,7 +108,7 @@
                     name='rubber-sheet-warp-mode-bar'
                     compact
                 />
-                <OpacityBar embedded />
+                <OpacityBar />
             </div>
         </template>
         <div
@@ -126,12 +126,9 @@
                     stroke='1'
                 /><span class='ms-1'>Adjust</span>
             </button>
-            <OpacityBar embedded />
+            <OpacityBar />
         </div>
-        <OpacityBar
-            v-else
-            embedded
-        />
+        <OpacityBar v-else />
         <RemoveSheetConfirm
             v-if='confirmRemove'
             @close='confirmRemove = false'
