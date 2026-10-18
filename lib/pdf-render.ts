@@ -2,7 +2,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mj
 import workerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw';
 import { MAX_IMAGE_SIDE } from './constants.ts';
 
-const THUMB_MAX_SIDE = 180;
+const THUMB_MAX_SIDE = 320;
 
 let workerReady = false;
 
@@ -73,5 +73,19 @@ export async function renderPdfPage(pageNumber: number): Promise<HTMLCanvasEleme
 
 export async function renderPdfThumbnail(pageNumber: number): Promise<string> {
     const canvas = await renderPageAtScale(pageNumber, THUMB_MAX_SIDE, 1);
-    return canvas.toDataURL('image/png');
+    // JPEG has no alpha: flatten onto white so transparent pages do not turn black.
+    const flat = document.createElement('canvas');
+    flat.width = canvas.width;
+    flat.height = canvas.height;
+    const ctx = flat.getContext('2d');
+    if (!ctx) throw new Error('Could not draw the PDF page');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, flat.width, flat.height);
+    ctx.drawImage(canvas, 0, 0);
+    canvas.width = 0;
+    canvas.height = 0;
+    const url = flat.toDataURL('image/jpeg', 0.7);
+    flat.width = 0;
+    flat.height = 0;
+    return url;
 }
