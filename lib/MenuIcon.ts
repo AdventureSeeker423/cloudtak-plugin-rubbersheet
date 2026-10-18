@@ -24,7 +24,8 @@ const STYLE = `
     box-sizing: content-box;
     border-radius: 50%;
     background-color: var(--tblr-primary, #1E90FF);
-    border: 2px solid var(--cloudtak-panel-bg, #14141a);
+    /* The host sets --cloudtak-surface-bg for both themes on <html>; --cloudtak-panel-bg only exists inside panels (the rail and menu are one). */
+    border: 2px solid var(--cloudtak-panel-bg, var(--cloudtak-surface-bg, #ffffff));
 }
 @media (forced-colors: active) {
     .rs-menu-icon__dot {
