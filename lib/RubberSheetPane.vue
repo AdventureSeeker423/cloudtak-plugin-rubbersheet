@@ -1,14 +1,5 @@
 <template>
-    <ImageEditor
-        v-if='editing && editSource && editPristine'
-        :source='editSource'
-        :pristine='editPristine'
-        :history='editHistory'
-        @apply='onEditApply'
-        @cancel='onEditCancel'
-    />
     <div
-        v-else
         class='rubber-pane d-flex flex-column gap-2 py-2'
     >
         <TablerInlineAlert
@@ -294,7 +285,7 @@
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import {
     TablerButton,
@@ -322,21 +313,18 @@ import SlideDownHeader from '../../../src/components/CloudTAK/util/SlideDownHead
 import { useAppStore } from '../../../src/stores/app.ts';
 import DataSyncPicker from './DataSyncPicker.vue';
 import { isCoarsePointer } from './device.ts';
-import ImageEditor from './ImageEditor.vue';
 import PdfPagePicker from './PdfPagePicker.vue';
 import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import WarpModeStrip from './WarpModeStrip.vue';
-import type { EditHistorySnapshot } from './edit-history.ts';
-import { FORMAT_KEY } from './constants.ts';
+import { EDIT_ROUTE_NAME, FORMAT_KEY } from './constants.ts';
+import { beginEditSession } from './edit-session.ts';
 import { parseExportType, saveExportType } from './export-type.ts';
 import {
     addCurrentAsOverlay,
-    applyEditedCanvas,
     bind,
     clearSheet,
     closeMissionPicker,
     downloadCurrent,
-    getEditSession,
     loadUserFile,
     openMissionPicker,
     openPagePicker,
@@ -350,19 +338,23 @@ const props = defineProps<{
 
 const appStore = useAppStore();
 
-const editing = ref(false);
-const editSource = shallowRef<HTMLCanvasElement | null>(null);
-const editPristine = shallowRef<Uint8Array | null>(null);
-const editHistory = shallowRef<EditHistorySnapshot | null>(null);
-
 const fileInput = ref<HTMLInputElement | null>(null);
 const confirmRemove = ref(false);
 
 // First section open; on phones the others start collapsed to keep the pane short.
-const adjustOpen = ref(true);
-const imageOpen = ref(!appStore.isMobileDetected);
-const exportOpen = ref(!appStore.isMobileDetected);
-const helpOpen = ref(false);
+// The choice lives in sheetUi so it survives the pane being rebuilt after the image editor route.
+function section(key: keyof typeof sheetUi.sections, defaultOpen: () => boolean) {
+    return computed({
+        get: () => sheetUi.sections[key] ?? defaultOpen(),
+        set: (value: boolean) => {
+            sheetUi.sections[key] = value;
+        },
+    });
+}
+const adjustOpen = section('adjust', () => true);
+const imageOpen = section('image', () => !appStore.isMobileDetected);
+const exportOpen = section('export', () => !appStore.isMobileDetected);
+const helpOpen = section('help', () => false);
 
 /** Keyboard keys are never mentioned on a touch screen or a phone-sized window. */
 const touchWording = computed(() => isCoarsePointer() || appStore.isMobileDetected);
@@ -393,36 +385,14 @@ onMounted(() => {
     sheetUi.adjusting = true;
 });
 
+/** The editor is its own route, so Back (browser or hardware) leaves it and returns to this pane. */
 function openEditor(): void {
-    const session = getEditSession();
-    if (!session) return;
-    editSource.value = session.source;
-    editPristine.value = session.pristine;
-    editHistory.value = session.history;
-    editing.value = true;
+    if (!beginEditSession()) return;
     sheetUi.error = '';
     sheetUi.success = '';
     sheetUi.status = '';
-}
-
-function onEditApply(canvas: HTMLCanvasElement, history: EditHistorySnapshot): void {
-    try {
-        applyEditedCanvas(canvas, history);
-        sheetUi.success = 'Image edits applied';
-    } catch (err) {
-        sheetUi.error = err instanceof Error ? err.message : String(err);
-    }
-    editing.value = false;
-    editSource.value = null;
-    editPristine.value = null;
-    editHistory.value = null;
-}
-
-function onEditCancel(): void {
-    editing.value = false;
-    editSource.value = null;
-    editPristine.value = null;
-    editHistory.value = null;
+    const { router } = props.api;
+    void router.push({ name: EDIT_ROUTE_NAME });
 }
 
 function onRemove(): void {

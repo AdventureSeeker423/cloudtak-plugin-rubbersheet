@@ -38,4 +38,11 @@ export const sheetUi = reactive({
     moveMode: false,
     /** False after Done on the Adjust bar: handles are hidden and the sheet cannot be dragged. */
     adjusting: true,
+    /** Which pane sections the user opened or closed; null keeps the default for the screen size. */
+    sections: {
+        adjust: null as boolean | null,
+        image: null as boolean | null,
+        export: null as boolean | null,
+        help: null as boolean | null,
+    },
 });

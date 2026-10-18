@@ -17,7 +17,7 @@
                     class='ie-btn ie-btn-square'
                     title='Cancel'
                     aria-label='Cancel'
-                    @click='emit("cancel")'
+                    @click='onCancelClick'
                 >
                     <IconX
                         :size='24'
@@ -130,7 +130,7 @@
                     <button
                         type='button'
                         class='ie-btn'
-                        @click='emit("cancel")'
+                        @click='onCancelClick'
                     >
                         Cancel Changes
                     </button>
@@ -596,6 +596,48 @@
             </template>
 
             <div
+                v-if='confirmDiscard'
+                class='ie-modal-backdrop'
+                @click.self='keepEditing'
+            >
+                <div
+                    class='ie-modal'
+                    role='alertdialog'
+                    aria-labelledby='ie-discard-title'
+                    aria-describedby='ie-discard-desc'
+                >
+                    <h2
+                        id='ie-discard-title'
+                        class='ie-modal-title'
+                    >
+                        Discard changes?
+                    </h2>
+                    <p
+                        id='ie-discard-desc'
+                        class='ie-modal-body'
+                    >
+                        Your edits to this image will be lost.
+                    </p>
+                    <div class='ie-modal-actions'>
+                        <button
+                            type='button'
+                            class='ie-btn'
+                            @click='keepEditing'
+                        >
+                            Keep editing
+                        </button>
+                        <button
+                            type='button'
+                            class='ie-btn ie-btn-danger'
+                            @click='confirmDiscardNow'
+                        >
+                            Discard
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div
                 v-if='confirmRevert'
                 class='ie-modal-backdrop'
                 @click.self='confirmRevert = false'
@@ -740,6 +782,10 @@ const canRedo = ref(false);
 const canRevert = ref(false);
 const hasSelection = ref(false);
 const confirmRevert = ref(false);
+const confirmDiscard = ref(false);
+/** Net number of edits since the editor opened (undo subtracts, redo adds). Not the undo depth, which stops at the cap. */
+const editSeq = ref(0);
+const dirty = computed(() => editSeq.value !== 0);
 const compactQuery = window.matchMedia(COMPACT_QUERY);
 const landscapeQuery = window.matchMedia(LANDSCAPE_QUERY);
 const compact = ref(compactQuery.matches);
@@ -798,6 +844,8 @@ let stampFuture: PlacedStamp[][] = props.history
     ? Array.from({ length: editHistory.redoCount }, () => [])
     : [];
 let nextStampId = 1;
+/** What to do when the user confirms the Discard dialog. */
+let onDiscard: (() => void) | null = null;
 
 /** Zoom button step, and how far above the finger the offset cursor sits. */
 const ZOOM_STEP = 1.25;
@@ -902,6 +950,7 @@ function pushEdit(): void {
     stampPast.push(cloneStamps(stamps));
     if (stampPast.length > historyCap) stampPast.shift();
     stampFuture = [];
+    editSeq.value += 1;
 }
 
 function buffersMatch(a: Uint8Array, b: Uint8Array): boolean {
@@ -1433,6 +1482,7 @@ function isInsideImage(point: { x: number; y: number }): boolean {
 function cancelInProgress(): void {
     if (strokeActive && editHistory.rollback(rgba)) {
         stampPast.pop();
+        editSeq.value -= 1;
         writeWorking();
         syncHistoryFlags();
     }
@@ -1838,6 +1888,7 @@ function doUndo(): void {
         stamps = stampFuture.pop() ?? [];
         return;
     }
+    editSeq.value -= 1;
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -1854,6 +1905,7 @@ function doRedo(): void {
         return;
     }
     if (stampPast.length > historyCap) stampPast.shift();
+    editSeq.value += 1;
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -1883,6 +1935,14 @@ function onKeyDown(event: KeyboardEvent): void {
         if (event.key === 'Escape') {
             event.preventDefault();
             moreOpen.value = false;
+        }
+        return;
+    }
+
+    if (confirmDiscard.value) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            keepEditing();
         }
         return;
     }
@@ -1976,6 +2036,38 @@ function onKeyUp(event: KeyboardEvent): void {
 function onEscapeKeyUpCapture(event: KeyboardEvent): void {
     if (event.key === 'Escape') event.stopPropagation();
 }
+
+/** Ask before throwing edits away. `proceed` runs when the user confirms; a second request closes the dialog. */
+function requestDiscard(proceed: () => void): void {
+    if (confirmDiscard.value) {
+        keepEditing();
+        return;
+    }
+    moreOpen.value = false;
+    confirmRevert.value = false;
+    onDiscard = proceed;
+    confirmDiscard.value = true;
+}
+
+function keepEditing(): void {
+    confirmDiscard.value = false;
+    onDiscard = null;
+}
+
+function confirmDiscardNow(): void {
+    const proceed = onDiscard;
+    confirmDiscard.value = false;
+    onDiscard = null;
+    proceed?.();
+}
+
+/** The Cancel button: leave straight away when nothing changed, otherwise ask first. */
+function onCancelClick(): void {
+    if (dirty.value) requestDiscard(() => emit('cancel'));
+    else emit('cancel');
+}
+
+defineExpose({ dirty, requestDiscard });
 
 function emitApply(): void {
     bakeStamps();
@@ -2526,7 +2618,7 @@ onUnmounted(() => {
 .ie-modal-backdrop {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 6;
     display: flex;
     align-items: center;
     justify-content: center;
