@@ -8,6 +8,8 @@
  * GET /api/profile/asset/:id.pmtiles/tile until Cloud Optimized tiles exist.
  */
 
+import { apiFetch, apiUrl, readError } from './api.ts';
+
 const POLL_MS = 2000;
 const MAX_WAIT_MS = 5 * 60 * 1000;
 
@@ -17,95 +19,9 @@ function sleep(ms: number): Promise<void> {
     });
 }
 
-async function readError(response: Response): Promise<string> {
-    const text = (await response.text()).trim();
-    if (!text) return `Request failed (${response.status})`;
-    try {
-        const json = JSON.parse(text) as { message?: string };
-        if (json.message) return json.message;
-    } catch {
-        // not JSON
-    }
-    return text;
-}
-
-/**
- * CloudTAK auth is a Bearer token from Capacitor Preferences.
- * On web that is stored as localStorage `CapacitorStorage.token` (not a cookie).
- */
-async function getAuthToken(): Promise<string | undefined> {
-    try {
-        const caps = localStorage.getItem('CapacitorStorage.token');
-        if (caps) return caps;
-        const plain = localStorage.getItem('token');
-        if (plain) return plain;
-    } catch {
-        // Private browsing can reject storage.
-    }
-
-    return readTokenFromCloudTakDb();
-}
-
-function readTokenFromCloudTakDb(): Promise<string | undefined> {
-    return new Promise((resolve) => {
-        const factory = indexedDB as IDBFactory & {
-            databases?: () => Promise<Array<{ name?: string }>>;
-        };
-        const open = () => {
-            const request = indexedDB.open('CloudTAK');
-            request.onupgradeneeded = () => {
-                request.transaction?.abort();
-            };
-            request.onerror = () => resolve(undefined);
-            request.onsuccess = () => {
-                const db = request.result;
-                if (!db.objectStoreNames.contains('config')) {
-                    db.close();
-                    resolve(undefined);
-                    return;
-                }
-                const tx = db.transaction('config', 'readonly');
-                const get = tx.objectStore('config').get('token');
-                get.onerror = () => {
-                    db.close();
-                    resolve(undefined);
-                };
-                get.onsuccess = () => {
-                    db.close();
-                    const row = get.result as { value?: unknown } | undefined;
-                    resolve(typeof row?.value === 'string' && row.value ? row.value : undefined);
-                };
-            };
-        };
-
-        if (typeof factory.databases !== 'function') {
-            open();
-            return;
-        }
-        void factory.databases().then((existing) => {
-            if (!existing.some((db) => db.name === 'CloudTAK')) {
-                resolve(undefined);
-                return;
-            }
-            open();
-        }).catch(() => resolve(undefined));
-    });
-}
-
-async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
-    const token = await getAuthToken();
-    if (!token) throw new Error('Not signed in — CloudTAK auth token is missing');
-
-    const headers = new Headers(init.headers);
-    if (!headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
-    }
-
-    return fetch(url, {
-        ...init,
-        credentials: 'same-origin',
-        headers,
-    });
+/** Imports and tiles need a signed-in user, so a missing token fails before the request. */
+function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    return apiFetch(path, init, { requireToken: true });
 }
 
 async function putImport(file: {
@@ -117,7 +33,7 @@ async function putImport(file: {
     const blob = new Blob([file.bytes.slice()], { type: file.mime });
     form.append('file', blob, file.filename);
 
-    const response = await apiFetch('/api/import', {
+    const response = await authFetch('/api/import', {
         method: 'PUT',
         body: form,
     });
@@ -135,7 +51,7 @@ async function putImport(file: {
 async function waitForImport(uid: string): Promise<string> {
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
-        const response = await apiFetch(`/api/import/${encodeURIComponent(uid)}`);
+        const response = await authFetch(`/api/import/${encodeURIComponent(uid)}`);
         if (!response.ok) throw new Error(await readError(response));
 
         const body = await response.json() as {
@@ -166,7 +82,7 @@ async function waitForTileJson(assetId: string): Promise<{ type: 'raster' | 'vec
     const deadline = Date.now() + MAX_WAIT_MS;
 
     while (Date.now() < deadline) {
-        const response = await apiFetch(tileUrl);
+        const response = await authFetch(tileUrl);
         if (response.ok) {
             const body = await response.json() as { tiles?: string[] };
             const tile = body.tiles?.[0];
@@ -177,7 +93,8 @@ async function waitForTileJson(assetId: string): Promise<{ type: 'raster' | 'vec
             } catch {
                 type = tile.includes('.mvt') ? 'vector' : 'raster';
             }
-            return { type, url: tileUrl };
+            // Stored absolute like the Files flow does (stdurl), so the native apps reach the server.
+            return { type, url: apiUrl(tileUrl) };
         }
 
         // 404 while tiling is still running is expected; other errors are real failures.
@@ -243,7 +160,7 @@ async function createProfileOverlay(opts: {
     }
 
     // Standalone / test fallback — API only (will not appear in the live menu).
-    const response = await apiFetch('/api/profile/overlay', {
+    const response = await authFetch('/api/profile/overlay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

@@ -1,6 +1,7 @@
 // Host modules (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
 import Subscription from '../../../src/base/subscription.ts';
 import { db } from '../../../src/database.ts';
+import { apiFetch, readError } from './api.ts';
 import { DATA_SYNC_LIST } from './constants.ts';
 import type { MissionChoice } from './ui-state.ts';
 
@@ -16,18 +17,6 @@ function canWriteRole(role: unknown): boolean {
     const type = roleType(role);
     // Same filter as CloudTAK ShareToMission (role: 'MISSION_SUBSCRIBER').
     return type === 'MISSION_OWNER' || type === 'MISSION_SUBSCRIBER';
-}
-
-async function getAuthToken(): Promise<string | undefined> {
-    try {
-        const caps = localStorage.getItem('CapacitorStorage.token');
-        if (caps) return caps;
-        const plain = localStorage.getItem('token');
-        if (plain) return plain;
-    } catch {
-        // Private browsing can reject storage.
-    }
-    return undefined;
 }
 
 /**
@@ -151,21 +140,10 @@ function listLocalMissions(): Promise<MissionChoice[]> {
 }
 
 async function listServerMissions(): Promise<MissionChoice[]> {
-    const token = await getAuthToken();
-    const headers = new Headers();
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-
-    const response = await fetch(
+    const response = await apiFetch(
         '/api/marti/mission?passwordProtected=true&defaultRole=true&sort=createTime&order=desc',
-        {
-            credentials: 'same-origin',
-            headers,
-        },
     );
-    if (!response.ok) {
-        const text = (await response.text()).trim();
-        throw new Error(text || `Could not list data syncs (${response.status})`);
-    }
+    if (!response.ok) throw new Error(await readError(response, `Could not list data syncs (${response.status})`));
 
     const body = await response.json() as {
         items?: Array<{
@@ -193,8 +171,6 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
     const headers: Record<string, string> = {
         'Content-Type': file.mime,
     };
-    const token = await getAuthToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
     if (mission.token) headers.MissionAuthorization = mission.token;
 
     const body = file.bytes.buffer.slice(
@@ -202,22 +178,11 @@ export async function uploadMissionFile(mission: MissionChoice, file: {
         file.bytes.byteOffset + file.bytes.byteLength,
     ) as ArrayBuffer;
 
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
         method: 'POST',
-        credentials: 'same-origin',
         headers,
         body,
     });
 
-    if (!response.ok) {
-        const text = (await response.text()).trim();
-        let message = text || `Upload failed (${response.status})`;
-        try {
-            const json = JSON.parse(text) as { message?: string };
-            if (json.message) message = json.message;
-        } catch {
-            // not JSON
-        }
-        throw new Error(message);
-    }
+    if (!response.ok) throw new Error(await readError(response, `Upload failed (${response.status})`));
 }
