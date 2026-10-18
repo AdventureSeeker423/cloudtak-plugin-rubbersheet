@@ -8,7 +8,79 @@
             aria-label='Image editor'
             @contextmenu.prevent
         >
-            <header class='ie-topbar'>
+            <header
+                v-if='compact'
+                class='ie-topbar ie-topbar-compact'
+            >
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Cancel'
+                    aria-label='Cancel'
+                    @click='emit("cancel")'
+                >
+                    <IconX
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Undo'
+                    aria-label='Undo'
+                    :disabled='!canUndo'
+                    @click='doUndo'
+                >
+                    <IconArrowBackUp
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='Redo'
+                    aria-label='Redo'
+                    :disabled='!canRedo'
+                    @click='doRedo'
+                >
+                    <IconArrowForwardUp
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square'
+                    title='More'
+                    aria-label='More'
+                    aria-haspopup='menu'
+                    :aria-expanded='moreOpen'
+                    @click='moreOpen = !moreOpen'
+                >
+                    <IconDots
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+                <button
+                    type='button'
+                    class='ie-btn ie-btn-square ie-btn-save ie-top-save'
+                    title='Save'
+                    aria-label='Save'
+                    @click='emitApply'
+                >
+                    <IconCheck
+                        :size='24'
+                        stroke='1.5'
+                    />
+                </button>
+            </header>
+            <header
+                v-else
+                class='ie-topbar'
+            >
                 <div class='ie-brand'>
                     <span class='ie-brand-mark' />
                     <span>Edit Image</span>
@@ -74,7 +146,7 @@
 
             <div
                 class='ie-body'
-                :style='bodyStyle'
+                :style='compact ? undefined : bodyStyle'
             >
                 <aside class='ie-tools'>
                     <button
@@ -271,8 +343,30 @@
 
                 <aside
                     class='ie-options'
-                    :class='{ "ie-options-wide": tool === "stamp" }'
+                    :class='{
+                        "ie-options-wide": tool === "stamp",
+                        "ie-options-collapsed": compact && !optionsOpen,
+                    }'
                 >
+                    <button
+                        v-if='compact'
+                        type='button'
+                        class='ie-sheet-head'
+                        :aria-expanded='optionsOpen'
+                        @click='optionsOpen = !optionsOpen'
+                    >
+                        <span>{{ toolLabel }} options</span>
+                        <IconChevronDown
+                            v-if='optionsOpen'
+                            :size='24'
+                            stroke='1.5'
+                        />
+                        <IconChevronUp
+                            v-else
+                            :size='24'
+                            stroke='1.5'
+                        />
+                    </button>
                     <template v-if='tool === "hand"'>
                         <div class='ie-opt-label'>
                             Pan
@@ -480,6 +574,27 @@
                 </aside>
             </div>
 
+            <template v-if='compact && moreOpen'>
+                <div
+                    class='ie-menu-backdrop'
+                    @click='moreOpen = false'
+                />
+                <div
+                    class='ie-menu'
+                    role='menu'
+                >
+                    <button
+                        type='button'
+                        class='ie-menu-item'
+                        role='menuitem'
+                        :disabled='!canRevert'
+                        @click='openRevert'
+                    >
+                        Revert To Original
+                    </button>
+                </div>
+            </template>
+
             <div
                 v-if='confirmRevert'
                 class='ie-modal-backdrop'
@@ -526,10 +641,17 @@
 </template>
 
 <script setup lang='ts'>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
+    IconArrowBackUp,
+    IconArrowForwardUp,
     IconArrowsMaximize,
+    IconCheck,
+    IconChevronDown,
+    IconChevronUp,
+    IconDots,
     IconHandStop,
+    IconX,
     IconZoomIn,
     IconZoomOut,
 } from '@tabler/icons-vue';
@@ -582,6 +704,14 @@ const emit = defineEmits<{
 
 type Tool = 'hand' | 'wand' | 'rect' | 'color' | 'eraser' | 'stamp';
 
+/**
+ * Phones, landscape phones and narrow windows get the compact layout (tool strip,
+ * bottom sheet, icon top bar). Keep this identical to the @media rules in <style>.
+ */
+const COMPACT_QUERY = '(max-width: 768px), (max-height: 500px) and (pointer: coarse)';
+/** Inside the compact layout, short screens put the tool rail on the left. */
+const LANDSCAPE_QUERY = '(max-height: 500px)';
+
 const tool = ref<Tool>('wand');
 const fuzziness = ref(28);
 /** Used by wand and marquee unless Shift (add) or Ctrl/Cmd (subtract) is held. */
@@ -610,6 +740,13 @@ const canRedo = ref(false);
 const canRevert = ref(false);
 const hasSelection = ref(false);
 const confirmRevert = ref(false);
+const compactQuery = window.matchMedia(COMPACT_QUERY);
+const landscapeQuery = window.matchMedia(LANDSCAPE_QUERY);
+const compact = ref(compactQuery.matches);
+const landscape = ref(landscapeQuery.matches);
+/** Compact layout: options bottom sheet. Open by default in portrait, collapsed in landscape. */
+const optionsOpen = ref(!landscapeQuery.matches);
+const moreOpen = ref(false);
 
 const rootEl = ref<HTMLElement | null>(null);
 const viewport = ref<HTMLElement | null>(null);
@@ -661,6 +798,7 @@ let nextStampId = 1;
 const ZOOM_STEP = 1.25;
 const OFFSET_CURSOR_PX = 60;
 const FIT_PAD = 40;
+const FIT_PAD_COMPACT = 12;
 /** Two taps this close in time and space count as a double-tap. */
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_PX = 30;
@@ -732,6 +870,16 @@ const cursorClass = computed(() => {
     if (tool.value === 'rect') return 'cursor-cross';
     return 'cursor-wand';
 });
+
+const TOOL_LABELS: Record<Tool, string> = {
+    hand: 'Hand',
+    wand: 'Wand',
+    rect: 'Rect',
+    eraser: 'Eraser',
+    color: 'Selective Color',
+    stamp: 'Icons',
+};
+const toolLabel = computed(() => TOOL_LABELS[tool.value]);
 
 const bodyStyle = computed(() => ({
     gridTemplateColumns: tool.value === 'stamp' ? '72px 1fr 260px' : '72px 1fr 200px',
@@ -812,6 +960,7 @@ function applyColorSelection(): void {
 
 function setTool(next: Tool): void {
     tool.value = next;
+    if (compact.value && !landscape.value) optionsOpen.value = true;
     rectDrag = null;
     if (next === 'color') {
         if (hasColorTarget.value) applyColorSelection();
@@ -821,6 +970,11 @@ function setTool(next: Tool): void {
     }
     // Wand / Rect keep the current selection.
     paint();
+}
+
+function openRevert(): void {
+    moreOpen.value = false;
+    confirmRevert.value = true;
 }
 
 function deleteSelection(): void {
@@ -1136,7 +1290,8 @@ function setView(view: View): void {
 function fitView(): void {
     const host = viewport.value;
     if (!host) return;
-    setView(computeFit(host.clientWidth, host.clientHeight, width, height, FIT_PAD));
+    const pad = compact.value ? FIT_PAD_COMPACT : FIT_PAD;
+    setView(computeFit(host.clientWidth, host.clientHeight, width, height, pad));
     paint();
 }
 
@@ -1717,6 +1872,14 @@ function onKeyDown(event: KeyboardEvent): void {
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
 
+    if (moreOpen.value) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            moreOpen.value = false;
+        }
+        return;
+    }
+
     if (confirmRevert.value) {
         if (event.key === 'Escape') {
             event.preventDefault();
@@ -1838,16 +2001,47 @@ watch(fuzziness, () => {
 });
 
 let resizeObserver: ResizeObserver | null = null;
+let lastViewW = 0;
+let lastViewH = 0;
+
+function onLayoutChange(): void {
+    compact.value = compactQuery.matches;
+    landscape.value = landscapeQuery.matches;
+    if (!compact.value) moreOpen.value = false;
+    optionsOpen.value = !landscape.value;
+    // The viewport changes size and shape; start from a fitted image.
+    nextTick(fitView);
+}
+
+/** Keep the image centred when the sheet opens or closes, instead of shifting it. */
+function onViewResize(): void {
+    const host = viewport.value;
+    if (host) {
+        const w = host.clientWidth;
+        const h = host.clientHeight;
+        if (compact.value && lastViewW > 0 && (w !== lastViewW || h !== lastViewH)) {
+            panX.value += (w - lastViewW) / 2;
+            panY.value += (h - lastViewH) / 2;
+        }
+        lastViewW = w;
+        lastViewH = h;
+    }
+    schedulePaint();
+}
 
 onMounted(() => {
     document.body.classList.add('rubber-ie-open');
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('keyup', onEscapeKeyUpCapture, true);
+    compactQuery.addEventListener('change', onLayoutChange);
+    landscapeQuery.addEventListener('change', onLayoutChange);
     syncHistoryFlags();
     fitView();
     if (viewport.value) {
-        resizeObserver = new ResizeObserver(() => schedulePaint());
+        lastViewW = viewport.value.clientWidth;
+        lastViewH = viewport.value.clientHeight;
+        resizeObserver = new ResizeObserver(onViewResize);
         resizeObserver.observe(viewport.value);
     }
     rootEl.value?.focus();
@@ -1859,6 +2053,8 @@ onUnmounted(() => {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('keyup', onEscapeKeyUpCapture, true);
+    compactQuery.removeEventListener('change', onLayoutChange);
+    landscapeQuery.removeEventListener('change', onLayoutChange);
     resizeObserver?.disconnect();
     cancelAnimationFrame(antsRaf);
     cancelAnimationFrame(paintRaf);
@@ -2389,6 +2585,218 @@ onUnmounted(() => {
     .ie-btn,
     .ie-seg-btn {
         min-height: 44px;
+    }
+}
+
+.ie-btn-square {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+}
+
+.ie-topbar-compact {
+    display: flex;
+    gap: 4px;
+    /* 51 px + the 1 px border = a 52 px bar; the top safe-area inset is added on top. */
+    height: 51px;
+    padding: env(safe-area-inset-top, 0px) 8px 0;
+}
+
+.ie-top-save {
+    margin-left: auto;
+}
+
+.ie-menu-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+}
+
+.ie-menu {
+    position: absolute;
+    z-index: 5;
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    left: 8px;
+    min-width: 200px;
+    padding: 4px;
+    border-radius: 8px;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.ie-menu-item {
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ie-menu-item:hover:not(:disabled) {
+    background: var(--cloudtak-hover-bg);
+}
+
+.ie-menu-item:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.ie-sheet-head {
+    appearance: none;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 6px;
+    padding: 0;
+    border: 0;
+    background: inherit;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+/*
+ * Compact layout for phones and narrow windows: canvas on top, the active tool's
+ * options in a bottom sheet, tools in a strip underneath. The query must match
+ * COMPACT_QUERY in <script>; the desktop grid is not touched outside this block.
+ */
+@media (max-width: 768px), (max-height: 500px) and (pointer: coarse) {
+    .ie-body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            'canvas'
+            'options'
+            'tools';
+    }
+
+    .ie-view {
+        grid-area: canvas;
+    }
+
+    .ie-zoom {
+        right: 8px;
+        bottom: 12px;
+    }
+
+    .ie-selection-bar {
+        bottom: 12px;
+    }
+
+    .ie-options {
+        grid-area: options;
+        max-height: 40dvh;
+        padding: 0 12px 12px;
+        border-left: 0;
+        border-top: 1px solid #0f1115;
+    }
+
+    .ie-options-collapsed {
+        padding-bottom: 0;
+    }
+
+    .ie-options-collapsed > :not(.ie-sheet-head) {
+        display: none;
+    }
+
+    .ie-range {
+        min-height: 44px;
+        margin-bottom: 0;
+    }
+
+    .ie-stamp-grid {
+        grid-template-columns: none;
+        grid-template-rows: repeat(2, auto);
+        grid-auto-flow: column;
+        grid-auto-columns: 76px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+
+    .ie-stamp-grid-numbers {
+        grid-template-rows: auto;
+        grid-auto-columns: 48px;
+    }
+
+    .ie-stamp-swatch-number {
+        min-height: 44px;
+    }
+
+    .ie-tools {
+        grid-area: tools;
+        flex-direction: row;
+        gap: 6px;
+        padding: 6px 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x proximity;
+        border-right: 0;
+        border-top: 1px solid #0f1115;
+    }
+
+    .ie-tool {
+        flex: 0 0 auto;
+        justify-content: center;
+        min-width: 56px;
+        min-height: 52px;
+        font-size: 12px;
+        scroll-snap-align: start;
+    }
+
+    @media (max-height: 500px) {
+        /* The canvas can be shorter than a vertical zoom stack when the sheet is open. */
+        .ie-zoom {
+            flex-direction: row;
+        }
+
+        .ie-body {
+            grid-template-columns: 64px minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr) auto;
+            grid-template-areas:
+                'tools canvas'
+                'tools options';
+        }
+
+        .ie-options {
+            max-height: 50dvh;
+        }
+
+        .ie-tools {
+            flex-direction: column;
+            gap: 4px;
+            padding: 6px 4px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            border-top: 0;
+            border-right: 1px solid #0f1115;
+        }
+
+        .ie-tool {
+            min-width: 0;
+            min-height: 46px;
+            padding: 4px 2px;
+            font-size: 10px;
+        }
     }
 }
 </style>
