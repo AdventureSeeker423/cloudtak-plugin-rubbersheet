@@ -142,10 +142,10 @@ function mapOrThrow(): MapLibreMap {
     return host.map;
 }
 
-function pointerToLngLat(event: PointerEvent): LngLat {
+function pointerToLngLat(event: PointerEvent, liftPx = 0): LngLat {
     const map = mapOrThrow();
     const rect = map.getCanvas().getBoundingClientRect();
-    const projected = map.unproject([event.clientX - rect.left, event.clientY - rect.top]);
+    const projected = map.unproject([event.clientX - rect.left, event.clientY - rect.top - liftPx]);
     return [projected.lng, projected.lat];
 }
 
@@ -480,6 +480,27 @@ function unlistenModifiers(): void {
     altHeld = false;
 }
 
+/** How far above the fingertip a corner is held while dragging on touch. */
+const CORNER_LIFT_PX = 56;
+
+/** Crosshair ring drawn on the dragged corner so the exact spot is visible above the finger. */
+function aimRing(): HTMLDivElement {
+    const ring = document.createElement('div');
+    ring.style.position = 'absolute';
+    ring.style.left = '50%';
+    ring.style.top = '50%';
+    ring.style.width = '48px';
+    ring.style.height = '48px';
+    ring.style.transform = 'translate(-50%, -50%)';
+    ring.style.boxSizing = 'border-box';
+    ring.style.borderRadius = '50%';
+    ring.style.border = '2px solid #ffffff';
+    ring.style.boxShadow = '0 0 0 1px #111111, inset 0 0 0 1px #111111';
+    ring.style.background = 'linear-gradient(#ffffff, #ffffff) center / 1px 100% no-repeat, linear-gradient(#ffffff, #ffffff) center / 100% 1px no-repeat';
+    ring.style.pointerEvents = 'none';
+    return ring;
+}
+
 function startCorner(event: PointerEvent, index: CornerIndex): void {
     // A second finger on another handle must not start a second drag.
     if (!quad || dragging) return;
@@ -487,19 +508,25 @@ function startCorner(event: PointerEvent, index: CornerIndex): void {
     if (!(target instanceof HTMLElement)) return;
     const origin = cloneQuad(quad);
     pushTransformHistory();
-    const startCursor = pointerToLngLat(event);
+    // A finger covers the corner it drags, so on touch the corner rides above the fingertip.
+    const lift = event.pointerType === 'touch' && isCoarsePointer() ? CORNER_LIFT_PX : 0;
+    const startCursor = lift ? origin[index] : pointerToLngLat(event);
     const mode = cornerDragMode(event);
+    const ring = lift ? aimRing() : null;
+    if (ring) target.appendChild(ring);
     const tracking = trackPointer(event, (ev) => {
         if (!cornerDrag) return;
-        cornerDrag.lastCursor = pointerToLngLat(ev);
+        cornerDrag.lastCursor = pointerToLngLat(ev, lift);
         const nextMode = cornerDragMode(ev);
         target.style.cursor = nextMode === 'corner' ? 'grabbing' : SCALE_CURSOR[index];
         quad = applyCornerDrag(nextMode, cornerDrag.origin, index, cornerDrag.lastCursor);
         sync();
     }, () => {
+        ring?.remove();
         discardTransformPushIfUnchanged(origin);
     });
     if (!tracking) {
+        ring?.remove();
         discardTransformPushIfUnchanged(origin);
         return;
     }
