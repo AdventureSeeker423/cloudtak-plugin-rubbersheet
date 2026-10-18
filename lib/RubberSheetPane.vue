@@ -410,9 +410,11 @@ onMounted(() => {
     bind(props.api);
     // Opening the pane brings the handles back after Done on the Adjust bar.
     sheetUi.adjusting = true;
-    // Opening the pane from the menu brings back an Adjust bar that another plugin's panel minimized.
-    restoreBarFromSelector();
-    if (returnFocus.edit) {
+    // The pane is rebuilt when the image editor route closes. That is not the user choosing Rubber Sheet, so only a
+    // mount from the menu brings back an Adjust bar that another plugin's panel minimized (and announces panel-open).
+    const backFromEditor = returnFocus.edit;
+    if (!backFromEditor) restoreBarFromSelector();
+    if (backFromEditor) {
         // Back from the editor: keyboard focus goes to the button that opened it.
         returnFocus.edit = false;
         // After the host menu modal has taken focus for itself.
