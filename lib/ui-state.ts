@@ -1,7 +1,10 @@
 import { reactive } from 'vue';
+import { FORMAT_KEY } from './constants.ts';
+import { loadExportType } from './export-type.ts';
+import type { ExportType } from './export-type.ts';
 import type { WarpMode } from './warp-mode.ts';
 
-export type ExportType = '' | 'kmz' | 'geotiff' | 'geopdf' | 'zip';
+export type { ExportType };
 
 export interface MissionChoice {
     guid: string;
@@ -16,11 +19,16 @@ export const sheetUi = reactive({
     /** Non-null while choosing a PDF page; entries are thumbnail data URLs or null while loading. */
     pageThumbs: null as (string | null)[] | null,
     hasSheet: false,
-    exportType: '' as ExportType,
+    /** Last chosen format (KMZ the first time). */
+    exportType: loadExportType(typeof localStorage === 'undefined' ? undefined : localStorage, FORMAT_KEY) as ExportType,
     busy: false,
     error: '',
+    /** Shown inline once an action has finished; cleared when the next action starts. */
+    success: '',
+    /** What the busy indicator says while something is running. */
     status: '',
-    missions: null as MissionChoice[] | null,
+    /** The "Add to Data Sync" picker is open. */
+    pickerOpen: false,
     /** Map transform undo/redo (corners, move, rotate). */
     canUndoTransform: false,
     canRedoTransform: false,

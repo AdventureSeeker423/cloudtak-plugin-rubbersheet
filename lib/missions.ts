@@ -1,3 +1,7 @@
+// Host modules (the plugin is built inside app/plugins/<name>/, like lib/overlay.ts).
+import Subscription from '../../../src/base/subscription.ts';
+import { db } from '../../../src/database.ts';
+import { DATA_SYNC_LIST } from './constants.ts';
 import type { MissionChoice } from './ui-state.ts';
 
 function roleType(role: unknown): string {
@@ -27,11 +31,41 @@ async function getAuthToken(): Promise<string | undefined> {
 }
 
 /**
- * Data syncs the user can attach files to — matching Files → Share to Data Sync:
- * local subscription rows with a write role (subscribed or not), merged with the
- * server mission catalog so unsubscribed-but-visible syncs still appear.
+ * Data syncs the "Add to Data Sync" picker offers. Which list is chosen by DATA_SYNC_LIST:
+ * 'subscribed' (default) is what the host Share to Data Sync shows, 'all' is the wider list
+ * from listAllWritableMissions().
  */
-export async function listWritableMissions(): Promise<MissionChoice[]> {
+export async function listMissionsForPicker(): Promise<MissionChoice[]> {
+    if (DATA_SYNC_LIST === 'all') return listAllWritableMissions();
+    return listSubscribedMissions();
+}
+
+/**
+ * Same list as the host Share to Data Sync: the locally stored data syncs where the user
+ * has a write role (Subscription.localList with role MISSION_SUBSCRIBER). The mission token
+ * is looked up so password-protected syncs still accept the upload.
+ */
+export async function listSubscribedMissions(): Promise<MissionChoice[]> {
+    const list = await Subscription.localList({ role: 'MISSION_SUBSCRIBER' });
+    const missions: MissionChoice[] = [];
+    for (const mission of list) {
+        let token: string | undefined;
+        try {
+            token = (await db.subscription.get(mission.guid))?.token || undefined;
+        } catch {
+            // A missing token only matters for password-protected syncs; the upload reports that.
+        }
+        missions.push({ guid: mission.guid, name: mission.name, token });
+    }
+    return missions.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Every data sync the user may be able to attach files to: local subscription rows with a
+ * write role (subscribed or not), merged with the server mission catalog so
+ * unsubscribed-but-visible syncs still appear. This was the picker list before phase 4.
+ */
+export async function listAllWritableMissions(): Promise<MissionChoice[]> {
     const byGuid = new Map<string, MissionChoice>();
 
     for (const mission of await listLocalMissions()) {

@@ -16,10 +16,11 @@ import {
     type Quad,
 } from './geometry.ts';
 import type { EditHistorySnapshot } from './edit-history.ts';
+import { isCoarsePointer } from './device.ts';
 import { handleBoxSizes } from './handle-size.ts';
 import { canvasFromImageFile, fileBaseName, isImage, isPdf, rasterFromCanvas } from './image-file.ts';
 import { makeExport } from './make-export.ts';
-import { listWritableMissions, uploadMissionFile } from './missions.ts';
+import { uploadMissionFile } from './missions.ts';
 import { ignoreCompatMouse, shouldStartTouchMove } from './move-mode.ts';
 import { opacityState, watchOpacity } from './opacity.ts';
 import AdjustBar from './AdjustBar.vue';
@@ -528,10 +529,6 @@ const CORNER_DOT_COARSE_PX = 24;
 const KNOB_DOT_FINE_PX = 32;
 const KNOB_DOT_COARSE_PX = 36;
 
-function isCoarsePointer(): boolean {
-    return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-}
-
 /**
  * The marker element is a transparent hit box (44 px) that owns the pointer
  * handlers and cursor; the visible dot is a non-interactive child.
@@ -885,7 +882,7 @@ function clearMap(): void {
     sheetUi.page = 1;
     sheetUi.pageCount = 1;
     sheetUi.pageThumbs = null;
-    sheetUi.missions = null;
+    sheetUi.pickerOpen = false;
 }
 
 export async function clearSheet(): Promise<void> {
@@ -893,14 +890,16 @@ export async function clearSheet(): Promise<void> {
     hideBar();
     sheetUi.name = '';
     sheetUi.error = '';
+    sheetUi.success = '';
     sheetUi.status = '';
     await closePdf();
 }
 
 export async function loadUserFile(file: File): Promise<void> {
     sheetUi.error = '';
-    sheetUi.status = '';
-    sheetUi.missions = null;
+    sheetUi.success = '';
+    sheetUi.status = isPdf(file) ? 'Reading the PDF…' : 'Loading the image…';
+    sheetUi.pickerOpen = false;
     sheetUi.pageThumbs = null;
     sheetUi.busy = true;
     try {
@@ -925,6 +924,7 @@ export async function loadUserFile(file: File): Promise<void> {
     } catch (err) {
         sheetUi.error = message(err);
     } finally {
+        sheetUi.status = '';
         sheetUi.busy = false;
     }
 }
@@ -935,12 +935,15 @@ export async function setPdfPage(page: number): Promise<void> {
     const resetQuad = !sheetUi.hasSheet;
     sheetUi.busy = true;
     sheetUi.error = '';
+    sheetUi.success = '';
+    sheetUi.status = `Rendering page ${next}…`;
     try {
         await showCanvas(await renderPdfPage(next), resetQuad);
         sheetUi.page = next;
     } catch (err) {
         sheetUi.error = message(err);
     } finally {
+        sheetUi.status = '';
         sheetUi.busy = false;
     }
 }
@@ -973,6 +976,7 @@ export async function downloadCurrent(): Promise<boolean> {
     if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
+    sheetUi.success = '';
     try {
         const file = await currentFile();
         const blob = new Blob([file.bytes.slice()], { type: file.mime });
@@ -982,47 +986,61 @@ export async function downloadCurrent(): Promise<boolean> {
         link.download = file.filename;
         link.click();
         URL.revokeObjectURL(url);
-        sheetUi.status = `Downloaded ${file.filename}`;
+        sheetUi.success = `Downloaded ${file.filename}`;
         return true;
     } catch (err) {
-        sheetUi.status = '';
         sheetUi.error = message(err);
         return false;
     } finally {
+        sheetUi.status = '';
         sheetUi.busy = false;
     }
 }
 
-export async function openMissionPicker(): Promise<void> {
+/** Opens the Add to Data Sync picker; the picker loads the list itself. */
+export function openMissionPicker(): void {
     if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return;
     sheetUi.error = '';
-    try {
-        sheetUi.missions = await listWritableMissions();
-    } catch (err) {
-        sheetUi.error = message(err);
-    }
+    sheetUi.pickerOpen = true;
 }
 
 export function closeMissionPicker(): void {
-    sheetUi.missions = null;
+    sheetUi.pickerOpen = false;
 }
 
-/** @returns true when the upload finished successfully */
-export async function uploadCurrent(mission: MissionChoice): Promise<boolean> {
-    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy) return false;
+/**
+ * Builds the export once and adds it to each chosen data sync in turn.
+ * Stops at the first failure and names that data sync in the error.
+ * @returns true when every upload finished successfully
+ */
+export async function uploadCurrent(missions: MissionChoice[]): Promise<boolean> {
+    if (!sheetUi.hasSheet || !sheetUi.exportType || sheetUi.busy || missions.length === 0) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
+    sheetUi.success = '';
+    sheetUi.pickerOpen = false;
+    let done = 0;
     try {
         const file = await currentFile();
-        await uploadMissionFile(mission, file);
-        sheetUi.missions = null;
-        sheetUi.status = `Uploaded ${file.filename} to ${mission.name}`;
+        for (const mission of missions) {
+            sheetUi.status = `Adding ${file.filename} to ${mission.name}…`;
+            try {
+                await uploadMissionFile(mission, file);
+            } catch (err) {
+                throw new Error(`Could not add to "${mission.name}": ${message(err)}`, { cause: err });
+            }
+            done++;
+        }
+        sheetUi.success = missions.length === 1
+            ? `Added ${file.filename} to Data Sync "${missions[0].name}"`
+            : `Added ${file.filename} to ${missions.length} Data Syncs`;
         return true;
     } catch (err) {
-        sheetUi.status = '';
-        sheetUi.error = message(err);
+        const added = done > 0 ? ` (${done} of ${missions.length} done)` : '';
+        sheetUi.error = `${message(err)}${added}`;
         return false;
     } finally {
+        sheetUi.status = '';
         sheetUi.busy = false;
     }
 }
@@ -1036,7 +1054,8 @@ export async function addCurrentAsOverlay(): Promise<boolean> {
     if (!sheetUi.hasSheet || !source || !quad || sheetUi.busy) return false;
     sheetUi.busy = true;
     sheetUi.error = '';
-    sheetUi.missions = null;
+    sheetUi.success = '';
+    sheetUi.pickerOpen = false;
     try {
         sheetUi.status = 'Building GeoTIFF for overlay…';
         await new Promise((resolve) => {
@@ -1051,13 +1070,13 @@ export async function addCurrentAsOverlay(): Promise<boolean> {
         await importAsOverlay(file, sheetUi.name, (text) => {
             sheetUi.status = text;
         });
-        sheetUi.status = `Added ${file.filename} as a map overlay`;
+        sheetUi.success = `Added ${file.filename} as a map overlay`;
         return true;
     } catch (err) {
-        sheetUi.status = '';
         sheetUi.error = message(err);
         return false;
     } finally {
+        sheetUi.status = '';
         sheetUi.busy = false;
     }
 }
