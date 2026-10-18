@@ -2410,9 +2410,8 @@ onUnmounted(() => {
     z-index: 10050;
     display: flex;
     flex-direction: column;
-    background: #1b1e24;
-    color: #e8eaed;
-    font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--tblr-body-bg);
+    color: var(--cloudtak-surface-color);
     outline: none;
 }
 
@@ -2424,9 +2423,8 @@ onUnmounted(() => {
     box-sizing: content-box;
     height: 48px;
     padding: env(safe-area-inset-top, 0px) 14px 0;
-    background: linear-gradient(180deg, #2a2f38 0%, #22262e 100%);
-    border-bottom: 1px solid #0f1115;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+    background: var(--cloudtak-surface-bg);
+    border-bottom: 1px solid var(--cloudtak-surface-border);
 }
 
 .ie-brand {
@@ -2443,8 +2441,8 @@ onUnmounted(() => {
     width: 10px;
     height: 10px;
     border-radius: 2px;
-    background: linear-gradient(135deg, #5b9cff, #3d7cf0);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+    background: var(--tblr-primary);
+    box-shadow: 0 0 0 1px var(--cloudtak-surface-border);
 }
 
 .ie-top-center {
@@ -2464,9 +2462,9 @@ onUnmounted(() => {
 
 .ie-btn {
     appearance: none;
-    border: 1px solid #3a414d;
-    background: #2c313a;
-    color: #e8eaed;
+    border: 1px solid var(--cloudtak-inset-border);
+    background: var(--cloudtak-inset-bg);
+    color: inherit;
     border-radius: 6px;
     padding: 5px 11px;
     font-size: 12px;
@@ -2482,8 +2480,8 @@ onUnmounted(() => {
 }
 
 .ie-btn:hover:not(:disabled) {
-    background: #363c48;
-    border-color: #525b6a;
+    background: var(--cloudtak-inset-hover-bg);
+    border-color: var(--cloudtak-hover-border);
 }
 
 .ie-btn:disabled {
@@ -2492,23 +2490,25 @@ onUnmounted(() => {
 }
 
 .ie-btn-save {
-    background: #2f9e5a;
-    border-color: #248a4b;
-    color: #fff;
+    background: var(--tblr-success);
+    border-color: color-mix(in srgb, var(--tblr-success) 80%, black);
+    color: var(--tblr-white, #fff);
 }
 
 .ie-btn-save:hover:not(:disabled) {
-    background: #37b067;
+    background: color-mix(in srgb, var(--tblr-success) 88%, white);
+    border-color: color-mix(in srgb, var(--tblr-success) 80%, black);
 }
 
 .ie-btn-danger {
-    background: #4a2a2a;
-    border-color: #7a3a3a;
-    color: #ffb4b4;
+    background: color-mix(in srgb, var(--tblr-danger) 16%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-danger) 55%, transparent);
+    color: var(--tblr-danger);
 }
 
 .ie-btn-danger:hover:not(:disabled) {
-    background: #5c3232;
+    background: color-mix(in srgb, var(--tblr-danger) 28%, transparent);
+    border-color: var(--tblr-danger);
 }
 
 .ie-body {
@@ -2523,8 +2523,8 @@ onUnmounted(() => {
     flex-direction: column;
     gap: 6px;
     padding: 10px 8px;
-    background: #22262e;
-    border-right: 1px solid #0f1115;
+    background: var(--cloudtak-surface-bg);
+    border-right: 1px solid var(--cloudtak-surface-border);
 }
 
 .ie-tool {
@@ -2536,7 +2536,7 @@ onUnmounted(() => {
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.02em;
@@ -2544,14 +2544,14 @@ onUnmounted(() => {
 }
 
 .ie-tool:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
+    background: var(--cloudtak-hover-bg);
+    color: var(--cloudtak-surface-color);
 }
 
 .ie-tool.active {
-    background: rgba(61, 124, 240, 0.18);
-    border-color: rgba(91, 156, 255, 0.45);
-    color: #fff;
+    background: color-mix(in srgb, var(--tblr-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-primary) 55%, transparent);
+    color: var(--cloudtak-active-color);
 }
 
 .ie-tool-multiline {
@@ -2623,8 +2623,9 @@ onUnmounted(() => {
     padding: 8px 10px;
     border-radius: 10px;
     transform: translateX(-50%);
-    background: rgba(34, 38, 46, 0.94);
-    border: 1px solid #3a414d;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
     pointer-events: auto;
     animation: ie-selection-in 160ms ease-out;
@@ -2643,8 +2644,8 @@ onUnmounted(() => {
 
 .ie-options {
     padding: 14px 14px 18px;
-    background: #22262e;
-    border-left: 1px solid #0f1115;
+    background: var(--cloudtak-surface-bg);
+    border-left: 1px solid var(--cloudtak-surface-border);
     overflow: auto;
 }
 
@@ -2665,10 +2666,10 @@ onUnmounted(() => {
     align-items: center;
     gap: 4px;
     padding: 8px 4px 6px;
-    border: 1px solid #3a414d;
+    border: 1px solid var(--cloudtak-inset-border);
     border-radius: 8px;
-    background: #2c313a;
-    color: #c5cad3;
+    background: var(--cloudtak-inset-bg);
+    color: var(--tblr-secondary-color);
     font-size: 10px;
     font-weight: 600;
     line-height: 1.15;
@@ -2677,15 +2678,15 @@ onUnmounted(() => {
 }
 
 .ie-stamp-swatch:hover {
-    background: #363c48;
-    border-color: #525b6a;
-    color: #fff;
+    background: var(--cloudtak-inset-hover-bg);
+    border-color: var(--cloudtak-hover-border);
+    color: var(--cloudtak-surface-color);
 }
 
 .ie-stamp-swatch.active {
-    background: rgba(61, 124, 240, 0.18);
-    border-color: rgba(91, 156, 255, 0.55);
-    color: #fff;
+    background: color-mix(in srgb, var(--tblr-primary) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tblr-primary) 60%, transparent);
+    color: var(--cloudtak-active-color);
 }
 
 .ie-stamp-swatch-number {
@@ -2697,7 +2698,7 @@ onUnmounted(() => {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: #9aa3b2;
+    color: var(--tblr-secondary-color);
     margin-bottom: 10px;
 }
 
@@ -2705,35 +2706,35 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin-bottom: 4px;
 }
 
 .ie-range {
     width: 100%;
-    accent-color: #5b9cff;
+    accent-color: var(--tblr-primary);
     margin-bottom: 10px;
 }
 
 .ie-brush-preview {
     margin: 0 auto 12px;
     border-radius: 50%;
-    border: 1.5px solid #e8eaed;
-    box-shadow: 0 0 0 1px #111;
-    background: radial-gradient(circle at 35% 35%, #5a6270, #2c313a);
+    border: 1.5px solid var(--cloudtak-surface-color);
+    box-shadow: 0 0 0 1px var(--cloudtak-surface-bg);
+    background: var(--cloudtak-active-bg);
 }
 
 .ie-brush-value {
     text-align: center;
     font-size: 12px;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin-bottom: 8px;
 }
 
 .ie-seg {
     display: flex;
     margin-bottom: 12px;
-    border: 1px solid #3a414d;
+    border: 1px solid var(--cloudtak-surface-border);
     border-radius: 999px;
     overflow: hidden;
 }
@@ -2743,9 +2744,9 @@ onUnmounted(() => {
     min-width: 0;
     padding: 5px 4px;
     border: 0;
-    border-left: 1px solid #3a414d;
-    background: #2c313a;
-    color: #c5cad3;
+    border-left: 1px solid var(--cloudtak-surface-border);
+    background: var(--cloudtak-inset-bg);
+    color: var(--tblr-secondary-color);
     font-size: 11px;
     font-weight: 600;
     line-height: 1.2;
@@ -2755,17 +2756,17 @@ onUnmounted(() => {
     border-left: 0;
 }
 .ie-seg-btn:hover {
-    background: #363c48;
-    color: #fff;
+    background: var(--cloudtak-inset-hover-bg);
+    color: var(--cloudtak-surface-color);
 }
 .ie-seg-btn.active {
-    background: rgba(61, 124, 240, 0.28);
-    color: #fff;
+    background: color-mix(in srgb, var(--tblr-primary) 28%, transparent);
+    color: var(--cloudtak-active-color);
 }
 .ie-hint {
     font-size: 11px;
     line-height: 1.4;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     margin: 0 0 10px;
 }
 
@@ -2774,7 +2775,8 @@ onUnmounted(() => {
     margin-bottom: 10px;
 }
 .ie-hint-muted {
-    color: #7d8696;
+    color: var(--tblr-secondary-color);
+    opacity: 0.85;
     margin-top: 18px;
 }
 
@@ -2814,19 +2816,19 @@ onUnmounted(() => {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    border: 1px solid #0f1115;
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.25),
-        0 0 0 1px #3a414d;
+        0 0 0 1px var(--cloudtak-surface-border);
 }
 
 .ie-swatch.empty {
-    background-color: #1b1e24;
+    background-color: var(--cloudtak-inset-bg);
     background-image:
-        linear-gradient(45deg, #3a414d 25%, transparent 25%),
-        linear-gradient(-45deg, #3a414d 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, #3a414d 75%),
-        linear-gradient(-45deg, transparent 75%, #3a414d 75%);
+        linear-gradient(45deg, var(--cloudtak-surface-border) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--cloudtak-surface-border) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--cloudtak-surface-border) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--cloudtak-surface-border) 75%);
     background-size: 8px 8px;
     background-position: 0 0, 0 4px, 4px -4px, -4px 0;
 }
@@ -2834,7 +2836,7 @@ onUnmounted(() => {
 .ie-swatch-caption {
     font-size: 11px;
     line-height: 1.3;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
 }
 
 .ie-modal-backdrop {
@@ -2852,8 +2854,9 @@ onUnmounted(() => {
     width: min(360px, calc(100vw - 32px));
     padding: 18px 18px 14px;
     border-radius: 10px;
-    background: #2a2f38;
-    border: 1px solid #3a414d;
+    background: var(--cloudtak-surface-bg);
+    color: var(--cloudtak-surface-color);
+    border: 1px solid var(--cloudtak-surface-border);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
@@ -2867,7 +2870,7 @@ onUnmounted(() => {
     margin: 0 0 16px;
     font-size: 13px;
     line-height: 1.45;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
 }
 
 .ie-modal-actions {
@@ -2886,7 +2889,7 @@ onUnmounted(() => {
     gap: 10px;
     margin-bottom: 12px;
     font-size: 12px;
-    color: #c5cad3;
+    color: var(--tblr-secondary-color);
     cursor: pointer;
 }
 
@@ -2894,7 +2897,34 @@ onUnmounted(() => {
     width: 20px;
     height: 20px;
     margin: 0;
-    accent-color: #5b9cff;
+    accent-color: var(--tblr-primary);
+}
+
+/*
+ * Readable type on phones and tablets: nothing visible below 12 px, hints and buttons larger.
+ * Desktop sizes above stay as they are.
+ */
+@media (pointer: coarse), (max-width: 768px) {
+    .ie-tool,
+    .ie-stamp-swatch,
+    .ie-opt-label,
+    .ie-range-labels,
+    .ie-brush-value,
+    .ie-swatch-caption,
+    .ie-toggle {
+        font-size: 12px;
+    }
+    .ie-seg-btn {
+        font-size: 13px;
+    }
+    .ie-hint,
+    .ie-modal-body {
+        font-size: 13px;
+    }
+    .ie-btn,
+    .ie-modal-title {
+        font-size: 14px;
+    }
 }
 
 @media (pointer: coarse) {
@@ -3047,7 +3077,7 @@ onUnmounted(() => {
         max-height: 40dvh;
         padding: 0 12px 12px;
         border-left: 0;
-        border-top: 1px solid #0f1115;
+        border-top: 1px solid var(--cloudtak-surface-border);
     }
 
     .ie-options-collapsed {
@@ -3067,7 +3097,7 @@ onUnmounted(() => {
         grid-template-columns: none;
         grid-template-rows: repeat(2, auto);
         grid-auto-flow: column;
-        grid-auto-columns: 76px;
+        grid-auto-columns: 92px;
         overflow-x: auto;
         padding-bottom: 4px;
     }
@@ -3090,7 +3120,7 @@ onUnmounted(() => {
         overflow-y: hidden;
         scroll-snap-type: x proximity;
         border-right: 0;
-        border-top: 1px solid #0f1115;
+        border-top: 1px solid var(--cloudtak-surface-border);
     }
 
     .ie-tool {
@@ -3109,7 +3139,7 @@ onUnmounted(() => {
         }
 
         .ie-body {
-            grid-template-columns: 64px minmax(0, 1fr);
+            grid-template-columns: 76px minmax(0, 1fr);
             grid-template-rows: minmax(0, 1fr) auto;
             grid-template-areas:
                 'tools canvas'
@@ -3127,14 +3157,14 @@ onUnmounted(() => {
             overflow-x: hidden;
             overflow-y: auto;
             border-top: 0;
-            border-right: 1px solid #0f1115;
+            border-right: 1px solid var(--cloudtak-surface-border);
         }
 
         .ie-tool {
             min-width: 0;
             min-height: 46px;
             padding: 4px 2px;
-            font-size: 10px;
+            font-size: 12px;
         }
     }
 }
