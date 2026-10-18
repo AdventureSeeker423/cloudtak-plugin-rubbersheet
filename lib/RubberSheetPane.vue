@@ -36,6 +36,22 @@
             :desc='sheetUi.status || "Working…"'
         />
 
+        <div
+            v-if='sheetUi.barHidden'
+            class='d-flex flex-column gap-2 px-2'
+        >
+            <TablerInlineAlert
+                severity='info'
+                title='The Adjust bar is hidden while another plugin is open.'
+            />
+            <TablerButton
+                class='btn-outline-primary rubber-action w-100'
+                title='Show the Adjust bar again'
+                @click='restoreBarFromSelector'
+            >
+                Show Adjust bar
+            </TablerButton>
+        </div>
         <input
             ref='fileInput'
             class='d-none'
@@ -336,6 +352,7 @@ import {
     loadUserFile,
     openMissionPicker,
     openPagePicker,
+    restoreBarFromSelector,
     uploadCurrent,
 } from './sheet.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
@@ -393,6 +410,8 @@ onMounted(() => {
     bind(props.api);
     // Opening the pane brings the handles back after Done on the Adjust bar.
     sheetUi.adjusting = true;
+    // Opening the pane from the menu brings back an Adjust bar that another plugin's panel minimized.
+    restoreBarFromSelector();
     if (returnFocus.edit) {
         // Back from the editor: keyboard focus goes to the button that opened it.
         returnFocus.edit = false;

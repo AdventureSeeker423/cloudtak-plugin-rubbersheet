@@ -6,7 +6,7 @@ import HeaderButtons from './lib/HeaderButtons.vue';
 import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
 import EditorRoute from './lib/EditorRoute.vue';
 import RubberSheetPane from './lib/RubberSheetPane.vue';
-import { IconRubberSheet } from './lib/icon.ts';
+import { IconRubberSheetState } from './lib/MenuIcon.ts';
 import { EDIT_ROUTE_NAME, EDIT_ROUTE_PATH, MENU_KEY, ROUTE_NAME, ROUTE_PATH } from './lib/constants.ts';
 import { bind, detach } from './lib/sheet.ts';
 
@@ -50,7 +50,7 @@ export default class RubberSheet implements PluginInstance {
             route: ROUTE_NAME,
             tooltip: 'Rubber Sheet',
             description: 'Stretch an image or PDF over the map',
-            icon: IconRubberSheet,
+            icon: IconRubberSheetState,
         });
     }
 
