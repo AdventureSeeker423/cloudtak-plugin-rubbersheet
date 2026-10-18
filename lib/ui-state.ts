@@ -38,6 +38,10 @@ export const sheetUi = reactive({
     moveMode: false,
     /** False after Done on the Adjust bar: handles are hidden and the sheet cannot be dragged. */
     adjusting: true,
+    /** The Adjust bar is minimized while another plugin's panel is open. Shows the dot on the menu entry. */
+    barHidden: false,
+    /** "Show settings" choice on the Adjust bar, kept across remounts; null keeps the default for the screen size. */
+    barMore: null as boolean | null,
     /** Which pane sections the user opened or closed; null keeps the default for the screen size. */
     sections: {
         adjust: null as boolean | null,

@@ -1,7 +1,7 @@
 import { watch, type Component } from 'vue';
 import { Marker } from 'maplibre-gl';
 import type { Map as MapLibreMap, MapMouseEvent, MapTouchEvent } from 'maplibre-gl';
-import { BOTTOM_KEY, LAYER_ID, SOURCE_ID } from './constants.ts';
+import { BOTTOM_KEY, LAYER_ID, MENU_KEY, SOURCE_ID } from './constants.ts';
 import {
     cloneQuad,
     centroid,
@@ -15,6 +15,7 @@ import {
     type LngLat,
     type Quad,
 } from './geometry.ts';
+import { createBarPanel, type BarPanel } from './bar-panel.ts';
 import type { EditHistorySnapshot } from './edit-history.ts';
 import { isCoarsePointer } from './device.ts';
 import { handleBoxSizes } from './handle-size.ts';
@@ -51,7 +52,8 @@ let pristineRgba: Uint8Array | null = null;
 let savedEditHistory: EditHistorySnapshot | null = null;
 let markers: Marker[] = [];
 let knob: Marker | null = null;
-let barOn = false;
+/** The Adjust bar's place in the bottom bar, shared with other plugins through the panel contract. */
+let panel: BarPanel | null = null;
 let dragging = false;
 /** Map gestures that the active drag switched off and must switch back on. */
 const gestureLocks = { pan: false, zoomRotate: false, pitch: false };
@@ -690,20 +692,24 @@ function removeMarkers(): void {
     unlistenModifiers();
 }
 
+/** Silent re-add (style reload). Does nothing while the bar is minimized for another plugin. */
 function ensureBar(): void {
-    if (!host || barOn) return;
-    host.bottomBar.add({ key: BOTTOM_KEY, component: AdjustBar });
-    barOn = true;
+    panel?.ensureBar();
 }
 
+/** The user loaded a sheet: show the bar and tell other plugins to make room. */
+function showBar(): void {
+    panel?.showBar();
+}
+
+/** Called when the sheet is gone or the plugin shuts down. */
 function hideBar(): void {
-    if (!host || !barOn) return;
-    try {
-        host.bottomBar.remove(BOTTOM_KEY);
-    } catch {
-        // The bar may already be gone if the plugin is shutting down.
-    }
-    barOn = false;
+    panel?.clear();
+}
+
+/** The user opened the Rubber Sheet pane or tapped Show Adjust bar: bring a minimized bar back. */
+export function restoreBarFromSelector(): void {
+    panel?.restoreFromSelector();
 }
 
 function applyOpacity(value: number): void {
@@ -778,7 +784,7 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
     freeCanvas(replaced, canvas);
     ensureMarkers();
     sync();
-    ensureBar();
+    showBar();
     sheetUi.hasSheet = true;
     sheetUi.adjusting = true;
     sheetUi.pageThumbs = null;
@@ -869,6 +875,14 @@ export function bind(next: SheetHost): void {
     if (host === next) return;
     if (host) detach();
     host = next;
+    panel = createBarPanel({
+        id: MENU_KEY,
+        key: BOTTOM_KEY,
+        component: AdjustBar,
+        bottomBar: next.bottomBar,
+        ui: sheetUi,
+        cancelDrag,
+    });
     watchOpacity(applyOpacity);
     host.map.on('mousedown', onMapMouseDown);
     host.map.on('touchstart', onTouchStart);
@@ -896,6 +910,8 @@ export function detach(): void {
     }
     clearMap();
     hideBar();
+    panel?.dispose();
+    panel = null;
     host = null;
     void closePdf();
 }
@@ -916,6 +932,8 @@ function clearMap(): void {
     sheetUi.hasSheet = false;
     sheetUi.adjusting = true;
     sheetUi.moveMode = false;
+    sheetUi.barHidden = false;
+    sheetUi.barMore = null;
     sheetUi.page = 1;
     sheetUi.pageCount = 1;
     sheetUi.pageThumbs = null;
