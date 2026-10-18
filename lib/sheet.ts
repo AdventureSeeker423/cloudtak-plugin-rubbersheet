@@ -742,14 +742,23 @@ async function showCanvas(canvas: HTMLCanvasElement, resetQuad: boolean): Promis
             source.height,
         );
     }
+    const replaced = overlayCanvas;
     overlayCanvas = canvas;
     attachRasterLayer();
+    freeCanvas(replaced, canvas);
     ensureMarkers();
     sync();
     ensureBar();
     sheetUi.hasSheet = true;
     sheetUi.adjusting = true;
     sheetUi.pageThumbs = null;
+}
+
+/** Release the backing store of a canvas the map no longer uses (phones have little memory). */
+function freeCanvas(old: HTMLCanvasElement | null, keep: HTMLCanvasElement | null): void {
+    if (!old || old === keep) return;
+    old.width = 0;
+    old.height = 0;
 }
 
 export type EditSession = {
@@ -794,17 +803,15 @@ export function applyEditedCanvas(
 ): void {
     if (!host || !quad) throw new Error('The map is not ready yet');
     source = rasterFromCanvas(canvas);
+    const replaced = overlayCanvas;
     overlayCanvas = canvas;
     if (!pristineRgba || pristineRgba.length !== source.rgba.length) {
         pristineRgba = source.rgba.slice();
     }
-    savedEditHistory = history
-        ? {
-            past: history.past.map((entry) => entry.slice()),
-            future: history.future.map((entry) => entry.slice()),
-        }
-        : null;
+    // The editor hands over its undo frames when it saves, so they are kept as they are.
+    savedEditHistory = history ?? null;
     attachRasterLayer();
+    freeCanvas(replaced, canvas);
     sync();
     sheetUi.hasSheet = true;
 }

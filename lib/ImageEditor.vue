@@ -655,8 +655,8 @@ import {
     IconZoomIn,
     IconZoomOut,
 } from '@tabler/icons-vue';
-import { MAX_IMAGE_SIDE } from './constants.ts';
-import { EditHistory, EDIT_HISTORY_CAP, type EditHistorySnapshot } from './edit-history.ts';
+import { editHistoryCap, maxImageSide } from './device.ts';
+import { EditHistory, type EditHistorySnapshot } from './edit-history.ts';
 import {
     colorSelect,
     eraseBrush,
@@ -754,10 +754,12 @@ const canvasEl = ref<HTMLCanvasElement | null>(null);
 
 let width = props.source.width;
 let height = props.source.height;
-let rgba = new Uint8Array(width * height * 4);
+let rgba: Uint8Array;
 let selectionMask = new Uint8Array(width * height);
 let selectionScratch = new Uint8Array(width * height);
-const editHistory = new EditHistory();
+/** Undo depth and the longest image side depend on the device (see device.ts). */
+const historyCap = editHistoryCap();
+const editHistory = new EditHistory(historyCap);
 
 const working = document.createElement('canvas');
 working.width = width;
@@ -776,13 +778,16 @@ let tintCtx: CanvasRenderingContext2D = firstTintCtx;
 const sourceCtx = props.source.getContext('2d', { willReadFrequently: true });
 if (!sourceCtx) throw new Error('Could not read the sheet image');
 const initial = sourceCtx.getImageData(0, 0, width, height);
-rgba.set(initial.data);
+// The editor works on the ImageData buffer itself instead of a second copy.
+rgba = new Uint8Array(initial.data.buffer);
 workingCtx.putImageData(initial, 0, 0);
 
+// props.pristine is a fresh copy made for this session and is only ever read.
 let original = props.pristine && props.pristine.length === rgba.length
-    ? new Uint8Array(props.pristine)
-    : new Uint8Array(initial.data);
-if (props.history) editHistory.importSnapshot(props.history);
+    ? props.pristine
+    : rgba.slice();
+// props.history is a fresh copy too, so the history can own its frames.
+if (props.history) editHistory.importSnapshot(props.history, { copy: false });
 
 /** Stamps placed this session — parallel undo stacks stay aligned with EditHistory. */
 let stamps: PlacedStamp[] = [];
@@ -895,7 +900,7 @@ function syncHistoryFlags(): void {
 function pushEdit(): void {
     editHistory.push(rgba);
     stampPast.push(cloneStamps(stamps));
-    if (stampPast.length > EDIT_HISTORY_CAP) stampPast.shift();
+    if (stampPast.length > historyCap) stampPast.shift();
     stampFuture = [];
 }
 
@@ -1050,16 +1055,17 @@ function ensureStampFits(cx: number, cy: number, size: number): { x: number; y: 
     let newW = width + padLeft + padRight;
     let newH = height + padTop + padBottom;
     // Keep within export/import limits; shrink padding symmetrically if needed.
-    if (newW > MAX_IMAGE_SIDE) {
-        const over = newW - MAX_IMAGE_SIDE;
+    const maxSide = maxImageSide();
+    if (newW > maxSide) {
+        const over = newW - maxSide;
         const cutL = Math.min(padLeft, Math.floor(over / 2));
         const cutR = Math.min(padRight, over - cutL);
         padLeft -= cutL;
         padRight -= cutR;
         newW = width + padLeft + padRight;
     }
-    if (newH > MAX_IMAGE_SIDE) {
-        const over = newH - MAX_IMAGE_SIDE;
+    if (newH > maxSide) {
+        const over = newH - maxSide;
         const cutT = Math.min(padTop, Math.floor(over / 2));
         const cutB = Math.min(padBottom, over - cutT);
         padTop -= cutT;
@@ -1847,6 +1853,7 @@ function doRedo(): void {
         stamps = stampPast.pop() ?? [];
         return;
     }
+    if (stampPast.length > historyCap) stampPast.shift();
     writeWorking();
     clearSelection();
     syncHistoryFlags();
@@ -1979,7 +1986,8 @@ function emitApply(): void {
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.drawImage(working, 0, 0);
-    emit('apply', out, editHistory.exportSnapshot());
+    // The editor unmounts right after Save, so the sheet can take the frames without a second copy.
+    emit('apply', out, editHistory.exportSnapshot({ copy: false }));
 }
 
 function antsLoop(now: number): void {
@@ -2059,10 +2067,20 @@ onUnmounted(() => {
     cancelAnimationFrame(antsRaf);
     cancelAnimationFrame(paintRaf);
     pointers.clear();
+    // Free the big buffers now instead of waiting for the garbage collector (matters on phones).
     editHistory.clear();
     stamps = [];
     stampPast = [];
     stampFuture = [];
+    rgba = new Uint8Array(0);
+    original = new Uint8Array(0);
+    selectionMask = new Uint8Array(0);
+    selectionScratch = new Uint8Array(0);
+    selectionPath = null;
+    for (const canvas of [working, tintCanvas]) {
+        canvas.width = 0;
+        canvas.height = 0;
+    }
 });
 </script>
 

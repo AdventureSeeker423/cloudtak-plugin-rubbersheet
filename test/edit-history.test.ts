@@ -129,3 +129,28 @@ test('rollback with nothing to roll back or a size mismatch changes nothing', ()
     assert.equal(history.undoCount, 1);
     assert.deepEqual(pixels, buf(5));
 });
+test('a smaller cap trims undo at that cap', () => {
+    const history = new EditHistory(10);
+    const pixels = buf(0);
+    for (let i = 0; i < 15; i++) {
+        history.push(pixels);
+        pixels[0] = i + 1;
+    }
+    assert.equal(history.undoCount, 10);
+    while (history.undo(pixels));
+    for (let i = 0; i < 12; i++) history.redo(pixels);
+    assert.equal(history.undoCount, 10);
+});
+test('importSnapshot trims to the instance cap and can take ownership of the frames', () => {
+    const frames = Array.from({ length: 14 }, (_, i) => buf(i));
+    const snapshot = { past: frames, future: [] };
+    const history = new EditHistory(10);
+    history.importSnapshot(snapshot, { copy: false });
+    assert.equal(history.undoCount, 10);
+    const out = history.exportSnapshot({ copy: false });
+    assert.equal(out.past[9], frames[13]);
+    const copied = new EditHistory(10);
+    copied.importSnapshot(snapshot);
+    assert.notEqual(copied.exportSnapshot().past[9], frames[13]);
+    assert.deepEqual(copied.exportSnapshot().past[9], frames[13]);
+});

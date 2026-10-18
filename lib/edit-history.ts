@@ -1,10 +1,13 @@
+import { EDIT_HISTORY_CAP_DESKTOP } from './constants.ts';
+
 /**
  * Linear undo/redo of deep-copied RGBA snapshots.
  * Call push() with the buffer state *before* each logical edit
  * (wand click, or eraser stroke start).
  */
 
-export const EDIT_HISTORY_CAP = 40;
+/** Default number of undo steps (desktop). Phones pass a smaller cap to the constructor. */
+export const EDIT_HISTORY_CAP = EDIT_HISTORY_CAP_DESKTOP;
 
 /** Serializable undo/redo stacks for persisting across editor sessions. */
 export type EditHistorySnapshot = {
@@ -15,6 +18,11 @@ export type EditHistorySnapshot = {
 export class EditHistory {
     private past: Uint8Array[] = [];
     private future: Uint8Array[] = [];
+    private cap: number;
+
+    constructor(cap: number = EDIT_HISTORY_CAP) {
+        this.cap = Math.max(1, Math.floor(cap));
+    }
 
     get canUndo(): boolean {
         return this.past.length > 0;
@@ -37,27 +45,40 @@ export class EditHistory {
         this.future = [];
     }
 
-    /** Deep-copy stacks for storing outside the editor. */
-    exportSnapshot(): EditHistorySnapshot {
+    /**
+     * Stacks for storing outside the editor. Deep-copied unless `copy` is false, which hands
+     * over the frames themselves (the caller then owns them and this history should be cleared).
+     */
+    exportSnapshot(options: { copy?: boolean } = {}): EditHistorySnapshot {
+        if (options.copy === false) {
+            return { past: this.past.slice(), future: this.future.slice() };
+        }
         return {
             past: this.past.map((entry) => entry.slice()),
             future: this.future.map((entry) => entry.slice()),
         };
     }
 
-    /** Restore stacks from a prior export (deep-copied). */
-    importSnapshot(snapshot: EditHistorySnapshot | null | undefined): void {
+    /**
+     * Restore stacks from a prior export. Frames are deep-copied unless `copy` is false,
+     * which takes ownership of the snapshot's frames (only the stack arrays are copied).
+     */
+    importSnapshot(
+        snapshot: EditHistorySnapshot | null | undefined,
+        options: { copy?: boolean } = {},
+    ): void {
         this.clear();
         if (!snapshot) return;
-        this.past = snapshot.past.map((entry) => entry.slice());
-        this.future = snapshot.future.map((entry) => entry.slice());
-        while (this.past.length > EDIT_HISTORY_CAP) this.past.shift();
+        const copy = options.copy !== false;
+        this.past = copy ? snapshot.past.map((entry) => entry.slice()) : snapshot.past.slice();
+        this.future = copy ? snapshot.future.map((entry) => entry.slice()) : snapshot.future.slice();
+        while (this.past.length > this.cap) this.past.shift();
     }
 
     /** Snapshot the current buffer before mutating it. Clears redo. */
     push(rgba: Uint8Array): void {
         this.past.push(rgba.slice());
-        if (this.past.length > EDIT_HISTORY_CAP) {
+        if (this.past.length > this.cap) {
             this.past.shift();
         }
         this.future = [];
@@ -94,7 +115,7 @@ export class EditHistory {
         }
         const next = this.future.pop()!;
         this.past.push(target.slice());
-        if (this.past.length > EDIT_HISTORY_CAP) {
+        if (this.past.length > this.cap) {
             this.past.shift();
         }
         target.set(next);

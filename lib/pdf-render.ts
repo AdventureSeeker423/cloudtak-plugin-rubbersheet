@@ -1,6 +1,6 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw';
-import { MAX_IMAGE_SIDE } from './constants.ts';
+import { maxImageSide } from './device.ts';
 
 const THUMB_MAX_SIDE = 320;
 
@@ -68,7 +68,7 @@ async function renderPageAtScale(
 }
 
 export async function renderPdfPage(pageNumber: number): Promise<HTMLCanvasElement> {
-    return renderPageAtScale(pageNumber, MAX_IMAGE_SIDE, 4);
+    return renderPageAtScale(pageNumber, maxImageSide(), 4);
 }
 
 export async function renderPdfThumbnail(pageNumber: number): Promise<string> {
