@@ -197,14 +197,33 @@ function onRemove(): void {
 </script>
 
 <style>
-/* The host panel is a fixed 50 px row. Let it grow around the full bar (specificity 0,3,0 beats the host's scoped rule). */
-.plugin-pane:has(.rubber-adjust--tall) {
+/* The host panel (PluginPane.vue) is a fixed 50 px row. Its scoped rule `.plugin-pane[data-v-x]` has specificity
+ * 0,2,0, the same as a single `.plugin-pane:has(...)`, so the winner depended on CSS order, and in a production build
+ * the host rule won: the 50 px box stayed small and the bar stuck out of it. Repeating the class gives 0,3,0 in any order. */
+.plugin-pane.plugin-pane:has(.rubber-adjust) {
     height: auto;
     min-height: 50px;
-    padding-block: 6px;
+    max-width: calc(100vw - 16px);
+    box-sizing: border-box;
+}
+/* Alone in the panel, the bar draws the surface itself (same fill, border, radius and shadow as `.cloudtak-panel`)
+ * and the host box turns invisible, so the surface always matches the content. */
+.plugin-pane.plugin-pane:has(.rubber-adjust):not(:has(> div + div)) {
+    padding-block: 0;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+.plugin-pane:not(:has(> div + div)) .rubber-adjust {
+    padding: 6px 8px;
+    border: 1px solid var(--cloudtak-surface-border, rgba(128, 128, 128, 0.3));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+/* Next to another plugin's bar the host panel stays the shared surface and grows around both. */
+.plugin-pane.plugin-pane:has(> div + div) .rubber-adjust {
+    background-color: transparent;
 }
 </style>
-
 <style scoped>
 @media (prefers-reduced-motion: reduce) {
     .rubber-adjust,
@@ -214,6 +233,11 @@ function onRemove(): void {
     }
 }
 .rubber-adjust {
+    box-sizing: border-box;
+    /* Own surface, same fill as the host panel, so the content stays readable even if the host box does not fit it. */
+    background-color: var(--cloudtak-panel-bg, var(--cloudtak-surface-bg, var(--tblr-bg-surface, #14141a)));
+    color: var(--cloudtak-surface-color, var(--tblr-body-color));
+    border-radius: 6px;
     width: min(300px, calc(100vw - 48px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
 }
 
