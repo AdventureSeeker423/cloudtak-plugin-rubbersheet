@@ -24,6 +24,13 @@
             </div>
         </template>
 
+        <div
+            class='visually-hidden'
+            role='status'
+            aria-live='polite'
+        >
+            {{ sheetUi.busy ? (sheetUi.status || 'Working…') : '' }}
+        </div>
         <TablerLoading
             v-if='sheetUi.busy'
             :desc='sheetUi.status || "Working…"'
@@ -109,6 +116,7 @@
                         @update:model-value='onName'
                     />
                     <TablerButton
+                        ref='editButton'
                         class='btn-outline-primary rubber-action w-100'
                         title='Edit the image'
                         :disabled='sheetUi.busy'
@@ -317,7 +325,7 @@ import PdfPagePicker from './PdfPagePicker.vue';
 import RemoveSheetConfirm from './RemoveSheetConfirm.vue';
 import WarpModeStrip from './WarpModeStrip.vue';
 import { EDIT_ROUTE_NAME, FORMAT_KEY } from './constants.ts';
-import { beginEditSession } from './edit-session.ts';
+import { beginEditSession, returnFocus } from './edit-session.ts';
 import { parseExportType, saveExportType } from './export-type.ts';
 import {
     addCurrentAsOverlay,
@@ -379,10 +387,18 @@ const canExport = computed(() => {
     return sheetUi.hasSheet && sheetUi.exportType !== '' && !sheetUi.busy;
 });
 
+const editButton = ref<{ $el: HTMLElement } | null>(null);
+
 onMounted(() => {
     bind(props.api);
     // Opening the pane brings the handles back after Done on the Adjust bar.
     sheetUi.adjusting = true;
+    if (returnFocus.edit) {
+        // Back from the editor: keyboard focus goes to the button that opened it.
+        returnFocus.edit = false;
+        // After the host menu modal has taken focus for itself.
+        setTimeout(() => editButton.value?.$el?.focus(), 150);
+    }
 });
 
 /** The editor is its own route, so Back (browser or hardware) leaves it and returns to this pane. */
@@ -391,6 +407,7 @@ function openEditor(): void {
     sheetUi.error = '';
     sheetUi.success = '';
     sheetUi.status = '';
+    returnFocus.edit = true;
     const { router } = props.api;
     void router.push({ name: EDIT_ROUTE_NAME });
 }
@@ -443,6 +460,13 @@ function onFormat(value: string): void {
 </script>
 
 <style scoped>
+@media (prefers-reduced-motion: reduce) {
+    .rubber-pane,
+    .rubber-pane :deep(*) {
+        transition: none !important;
+        animation: none !important;
+    }
+}
 .rubber-action {
     display: inline-flex;
     align-items: center;

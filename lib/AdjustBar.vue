@@ -206,6 +206,13 @@ function onRemove(): void {
 </style>
 
 <style scoped>
+@media (prefers-reduced-motion: reduce) {
+    .rubber-adjust,
+    .rubber-adjust :deep(*) {
+        transition: none !important;
+        animation: none !important;
+    }
+}
 .rubber-adjust {
     width: min(300px, calc(100vw - 48px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
 }

@@ -5,6 +5,7 @@
             class='ie-root'
             tabindex='0'
             role='dialog'
+            aria-modal='true'
             aria-label='Image editor'
             @contextmenu.prevent
         >
@@ -132,14 +133,14 @@
                         class='ie-btn'
                         @click='onCancelClick'
                     >
-                        Cancel Changes
+                        Cancel
                     </button>
                     <button
                         type='button'
                         class='ie-btn ie-btn-save'
                         @click='emitApply'
                     >
-                        Save Changes
+                        Save
                     </button>
                 </div>
             </header>
@@ -153,6 +154,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "hand" }'
+                        :aria-pressed='tool === "hand"'
                         title='Hand — drag to pan'
                         @click='setTool("hand")'
                     >
@@ -166,6 +168,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "wand" }'
+                        :aria-pressed='tool === "wand"'
                         title='Magic Wand — select connected color'
                         @click='setTool("wand")'
                     >
@@ -181,6 +184,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "rect" }'
+                        :aria-pressed='tool === "rect"'
                         title='Rectangle Marquee — drag to select'
                         @click='setTool("rect")'
                     >
@@ -199,6 +203,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "eraser" }'
+                        :aria-pressed='tool === "eraser"'
                         title='Eraser — paint transparency'
                         @click='setTool("eraser")'
                     >
@@ -214,6 +219,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "color" }'
+                        :aria-pressed='tool === "color"'
                         title='Selective Color — select every matching color in the image'
                         @click='setTool("color")'
                     >
@@ -229,6 +235,7 @@
                         type='button'
                         class='ie-tool'
                         :class='{ active: tool === "stamp" }'
+                        :aria-pressed='tool === "stamp"'
                         title='Icons — place or remove facility markers'
                         @click='setTool("stamp")'
                     >
@@ -417,6 +424,9 @@
                             stroke='1.5'
                         />
                     </button>
+                    <p class='ie-hint ie-tool-desc'>
+                        {{ toolDescription }}
+                    </p>
                     <template v-if='tool === "hand"'>
                         <div class='ie-opt-label'>
                             Pan
@@ -438,6 +448,7 @@
                             min='0'
                             max='80'
                             v-model.number='fuzziness'
+                            aria-label='Match range'
                             title='How far from the clicked color still counts as a match'
                         >
                         <div class='ie-opt-label'>
@@ -503,7 +514,8 @@
                                 class='ie-swatch'
                                 :class='{ empty: !hasColorTarget }'
                                 :style='hasColorTarget ? { background: targetColorCss } : undefined'
-                                :title='hasColorTarget ? "Current target" : "Click the image to pick"'
+                                role='img'
+                                :aria-label='hasColorTarget ? `Target color ${targetColorCss}` : "No target color picked yet"'
                             />
                             <span class='ie-swatch-caption'>
                                 {{ hasColorTarget ? targetColorCss : 'Click image to pick' }}
@@ -521,6 +533,7 @@
                             max='80'
                             v-model.number='fuzziness'
                             :disabled='!hasColorTarget'
+                            aria-label='Match range'
                             title='How far from the target color still counts as a match'
                         >
                         <p class='ie-hint'>
@@ -537,6 +550,8 @@
                                 type='button'
                                 class='ie-stamp-swatch'
                                 :class='{ active: stampKind === entry.kind }'
+                                :aria-pressed='stampKind === entry.kind'
+                                :aria-label='entry.label'
                                 :title='entry.label'
                                 @click='stampKind = entry.kind'
                             >
@@ -555,6 +570,8 @@
                                 type='button'
                                 class='ie-stamp-swatch ie-stamp-swatch-number'
                                 :class='{ active: stampKind === entry.kind }'
+                                :aria-pressed='stampKind === entry.kind'
+                                :aria-label='entry.label'
                                 :title='entry.label'
                                 @click='stampKind = entry.kind'
                             >
@@ -571,6 +588,7 @@
                             min='16'
                             max='96'
                             v-model.number='stampSize'
+                            aria-label='Icon size'
                         >
                         <div class='ie-brush-value'>{{ stampSize }}px</div>
                         <button
@@ -601,6 +619,7 @@
                             min='2'
                             max='300'
                             v-model.number='brushSize'
+                            aria-label='Brush size'
                         >
                         <div class='ie-brush-value'>{{ brushSize }}px</div>
                         <label class='ie-toggle ie-touch-only'>
@@ -845,6 +864,9 @@ const dirty = computed(() => editSeq.value !== 0 || pendingStamp.value !== null)
 const compactQuery = window.matchMedia(COMPACT_QUERY);
 const landscapeQuery = window.matchMedia(LANDSCAPE_QUERY);
 const compact = ref(compactQuery.matches);
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+/** What had focus before the editor opened; focus goes back there when it closes. */
+let opener: HTMLElement | null = null;
 const landscape = ref(landscapeQuery.matches);
 /** Compact layout: options bottom sheet. Open by default in portrait, collapsed in landscape. */
 const optionsOpen = ref(!landscapeQuery.matches);
@@ -1006,6 +1028,16 @@ const TOOL_LABELS: Record<Tool, string> = {
     stamp: 'Icons',
 };
 const toolLabel = computed(() => TOOL_LABELS[tool.value]);
+/** One visible line per tool, so the explanation is not only in the hover tooltip (touch has none). */
+const TOOL_DESCRIPTIONS: Record<Tool, string> = {
+    hand: 'Hand: move around the image without changing it.',
+    wand: 'Magic Wand: selects connected pixels of a similar color.',
+    rect: 'Rectangle Marquee: selects a rectangular area.',
+    eraser: 'Eraser: paints transparency.',
+    color: 'Selective Color: selects every pixel that matches a color.',
+    stamp: 'Icons: place or remove facility markers.',
+};
+const toolDescription = computed(() => TOOL_DESCRIPTIONS[tool.value]);
 
 const bodyStyle = computed(() => ({
     gridTemplateColumns: tool.value === 'stamp' ? '72px 1fr 260px' : '72px 1fr 200px',
@@ -2130,9 +2162,44 @@ function revertToOriginal(): void {
     if (tool.value === 'color' && hasColorTarget.value) applyColorSelection();
 }
 
+const FOCUSABLE = 'button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab and Shift+Tab inside the editor (or inside the open dialog) by wrapping at the ends. */
+function trapTab(event: KeyboardEvent): void {
+    const root = rootEl.value;
+    if (!root) return;
+    const scope = root.querySelector<HTMLElement>('.ie-modal') ?? root;
+    const items = [...scope.querySelectorAll<HTMLElement>(FOCUSABLE)]
+        .filter((el) => !(el as HTMLButtonElement).disabled && el.getClientRects().length > 0);
+    if (items.length === 0) {
+        event.preventDefault();
+        return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !scope.contains(active) || active === root) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
 function onKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Tab') {
+        trapTab(event);
+        return;
+    }
+
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    // Space on a button reached with the keyboard must press it, not start Space-drag panning.
+    if (event.code === 'Space' && target instanceof HTMLButtonElement && target.matches(':focus-visible')) return;
 
     if (moreOpen.value) {
         if (event.key === 'Escape') {
@@ -2300,6 +2367,14 @@ function emitApply(): void {
 function antsLoop(now: number): void {
     antsRaf = requestAnimationFrame(antsLoop);
     if (!hasSelection.value) return;
+    if (reducedMotion.matches) {
+        // Static dashes instead of the crawl.
+        if (antsPhase !== 0) {
+            antsPhase = 0;
+            paint();
+        }
+        return;
+    }
     // ~12 fps crawl — readable ants without strobing a full redraw.
     if (now - lastAntPaint < 80) return;
     lastAntPaint = now;
@@ -2316,6 +2391,18 @@ watch([brushSize, stampSize, stampKind, tool], () => {
             : null;
     }
     paint();
+});
+
+// A dialog opens on its safe button; closing it returns focus to the editor.
+watch([confirmDiscard, confirmRevert, moreOpen], async ([discard, revert, more], [wasDiscard, wasRevert, wasMore]) => {
+    await nextTick();
+    if (discard || revert) {
+        rootEl.value?.querySelector<HTMLElement>('.ie-modal .ie-btn')?.focus();
+    } else if (more && !wasMore) {
+        rootEl.value?.querySelector<HTMLElement>('.ie-menu-item:not(:disabled)')?.focus();
+    } else if (wasDiscard || wasRevert || wasMore) {
+        rootEl.value?.focus();
+    }
 });
 
 watch(fuzziness, () => {
@@ -2366,6 +2453,7 @@ onMounted(() => {
         resizeObserver = new ResizeObserver(onViewResize);
         resizeObserver.observe(viewport.value);
     }
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     rootEl.value?.focus();
     antsRaf = requestAnimationFrame(antsLoop);
 });
@@ -2381,6 +2469,9 @@ onUnmounted(() => {
     cancelAnimationFrame(antsRaf);
     cancelAnimationFrame(paintRaf);
     pointers.clear();
+    // Hand focus back to what opened the editor (the pane's Edit Image button).
+    if (opener && opener.isConnected) opener.focus();
+    opener = null;
     // Free the big buffers now instead of waiting for the garbage collector (matters on phones).
     editHistory.clear();
     stamps = [];
@@ -2770,6 +2861,27 @@ onUnmounted(() => {
     margin: 0 0 10px;
 }
 
+.ie-tool-desc {
+    color: var(--cloudtak-surface-color);
+}
+
+.ie-root :focus-visible {
+    outline: 2px solid var(--tblr-primary);
+    outline-offset: 2px;
+}
+
+.ie-root:focus-visible {
+    outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ie-root,
+    .ie-root * {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
 .ie-clear-pick {
     width: 100%;
     margin-bottom: 10px;
@@ -2905,6 +3017,9 @@ onUnmounted(() => {
  * Desktop sizes above stay as they are.
  */
 @media (pointer: coarse), (max-width: 768px) {
+    .ie-tool-desc {
+        font-size: 13px;
+    }
     .ie-tool,
     .ie-stamp-swatch,
     .ie-opt-label,

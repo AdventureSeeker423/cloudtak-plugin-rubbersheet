@@ -25,3 +25,9 @@ export function endEditSession(): void {
     session.source.width = 0;
     session.source.height = 0;
 }
+
+/**
+ * Set when the pane opens the editor. The pane is rebuilt when the editor route closes, so the
+ * new pane uses this to put keyboard focus back on its Edit Image button.
+ */
+export const returnFocus = { edit: false };
