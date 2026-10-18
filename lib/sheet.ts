@@ -27,6 +27,8 @@ import AdjustBar from './AdjustBar.vue';
 import { importAsOverlay } from './overlay.ts';
 import { closePdf, openPdf, renderPdfPage, renderPdfThumbnail } from './pdf-render.ts';
 import { sheetUi, type MissionChoice } from './ui-state.ts';
+import { downloadBlob } from '../../../src/std.ts';
+import { isNativePlatform } from '../../../src/utils/capacitor.ts';
 import type { Raster } from './warp.ts';
 import { resolveCornerDragMode, type CornerDragMode } from './warp-mode.ts';
 
@@ -987,12 +989,24 @@ export async function downloadCurrent(): Promise<boolean> {
     try {
         const file = await currentFile();
         const blob = new Blob([file.bytes.slice()], { type: file.mime });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = file.filename;
-        link.click();
-        URL.revokeObjectURL(url);
+        // In the native apps an anchor download goes nowhere useful, so offer the share sheet
+        // (Save to Files, AirDrop, ...) when the WebView supports sharing files.
+        if (isNativePlatform()) {
+            const shareable = new File([blob], file.filename, { type: file.mime });
+            if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [shareable] })) {
+                try {
+                    await navigator.share({ files: [shareable], title: file.filename });
+                } catch (err) {
+                    // Closing the share sheet is not an error.
+                    if (err instanceof DOMException && err.name === 'AbortError') return false;
+                    throw err;
+                }
+                sheetUi.success = `Shared ${file.filename}`;
+                return true;
+            }
+        }
+        // Web: a plain file download through the host helper (an empty Response has no Content-Disposition).
+        downloadBlob(blob, new Response(null), file.filename);
         sheetUi.success = `Downloaded ${file.filename}`;
         return true;
     } catch (err) {
