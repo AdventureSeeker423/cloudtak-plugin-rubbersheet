@@ -2,68 +2,45 @@
 
 CloudTAK plugin that stretches an image or PDF over the map, the way ATAK rubber-sheets a floor plan onto a building.
 
+Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](https://github.com/mozilla/pdf.js) (Apache-2.0). The installer adds that library to the CloudTAK app so the web build can bundle it. Do not rely on `WEB_PLUGINS` alone: that clone does not install PDF.js.
+
 ## What it does
-* Open **Rubber Sheet** from the menu and choose a PNG, JPEG, WebP, GIF, or PDF (a multi-page PDF shows a page picker). The sheet is placed north-up in the middle of the view.
-* **Warp it** by dragging a corner handle; the round handle rotates. Drag the image to move it (on touch, turn on **Move** first). With a keyboard, hold Shift to scale about the opposite corner or Alt to scale from the center; without one, use **Corner drag** in the pane (Free, Scale corner, Scale center). Undo and Redo are in the pane header and on Ctrl/Cmd+Z and Ctrl+Y.
-* **Adjust bar** at the bottom of the map: **Done** (hides the handles so you can pan the map; **Adjust** brings them back), Undo, Redo, Move, **Remove Sheet** and the opacity slider. On a desktop with a mouse only the slider shows. When another plugin opens a bottom panel (for example Weather) the bar steps aside until that panel closes. The plugins tell each other through the `cloudtak-plugin:panel-open` and `cloudtak-plugin:panel-close` events on `window`; the contract is in [`docs/fork/PLUGIN-PANELS.md`](https://github.com/TAK-NZ/CloudTAK/blob/main/docs/fork/PLUGIN-PANELS.md) of the TAK-NZ CloudTAK fork, and the shared helper is `lib/panel-coordinator.ts` (MIT-0).
-* **Edit Image** opens a fullscreen editor with Hand, magic wand, rectangle marquee, eraser, Selective Color and facility **Icons** (first aid, AED, hydrant, shutoffs, hazmat, numbered placards and more). Replace / Add / Subtract controls how selections combine. It works with a mouse or touch (one finger uses the tool, two fingers pan and zoom). **Revert To Original** restores the unedited image, **Save** keeps your map corners, and Back asks before discarding unsaved edits.
-* Pick a **Format** (KMZ, GeoTIFF, GeoPDF, or a ZIP of all three), then **Download**, **Add to Data Sync** (data syncs you are subscribed to with write access) or **Add to Map as Overlay** (imported like Files → Add to Map as Overlay).
-* KMZ keeps the exact four corners (`gx:LatLonQuad`). GeoTIFF and GeoPDF are north-up copies of the fitted sheet, as those formats cannot store a warp. Images are JPEG quality 85, and pictures with transparency stay PNG in the KMZ.
-* On phones images are capped at 2048 px and the editor keeps 10 undo steps (desktop: 4096 px, 40). The layout follows the CloudTAK theme (Light and Dark).
-* Desktop keyboard shortcuts in the editor: Space-drag or wheel to pan and zoom, `[` and `]` for brush size, Delete to clear a selection, Ctrl/Cmd+D or Esc to deselect.
 
-## Screenshots
-
-The Rubber Sheet panel with a PDF floor plan placed on the map. The sheet is warped by dragging its corners, and the opacity slider sits at the bottom of the map.
-
-![Rubber Sheet panel with a floor plan placed on the map](docs/screenshots/rubbersheet.png)
-
-Edit Image opens the fullscreen pixel editor, with the wand, rectangle marquee, eraser, Selective Color and facility icon tools.
-
-![Edit Image pixel editor](docs/screenshots/rubbersheet-edit.png)
-
-## Requirements
-
-CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](https://github.com/mozilla/pdf.js) (Apache-2.0), so the CloudTAK app must have `pdfjs-dist` **4.10.38** as a dependency for the web build to bundle it. `WEB_PLUGINS` only clones the plugin and does not install dependencies.
+* Open **Rubber Sheet** from the right-side menu and choose a PNG, JPEG, WebP, GIF, or PDF. A multi-page PDF shows page previews so you can pick which page to use.
+* The sheet is placed in the center of the current view, north-up, covering about a quarter of the view.
+* Drag a corner to warp that corner. Hold Shift to scale about the opposite corner, or Alt (or Shift+Alt) to scale from the center — you can press or release those keys mid-drag to switch modes. Drag the rotate icon to rotate. Drag the image to move it. Ctrl/Cmd+Z undoes a map transform; Ctrl+Y or Ctrl/Cmd+Shift+Z redoes.
+* **Edit Image** opens a fullscreen pixel editor: magic wand, rectangle marquee, eraser brush with a live size cursor, Selective Color (pick a color to select every match), and **Icons** for facility markers (first aid, AED, key box, extinguisher, hose cabinet, standpipe, hydrant, electric/gas/water shutoffs, electrical room, hazmat, and numbered placards 0–20 — click again to remove before Save). Marching ants + Delete/Deselect (bottom bar) clear a selection. Match range runs Exact → Loose. Undo/Redo with Ctrl/Cmd+Z and Ctrl+Y (or Ctrl/Cmd+Shift+Z). Revert To Original (with confirm) restores the unedited image from when the sheet was first loaded — that option stays available after Save, and undo/redo stacks are kept across reopen. Save Changes keeps your map corners; Cancel Changes discards the edit session.
+* An opacity slider sits at the bottom of the map, from 0% (transparent) to 100% (fully visible). Scroll the wheel over it to change by 5%. It remembers the last value, and starts at 100% the first time.
+* **Cancel** in the plugin header clears the sheet. Closing the sidebar leaves the sheet on the map so you can keep editing.
+* **Export File Type** is required for Download / Data Sync: KMZ, GeoTIFF, GeoPDF, or a zipped bundle of all three.
+* **Download** saves that file. **Upload to Data Sync** lists writable data syncs (same idea as Files → Share to Data Sync — including syncs you can write to even if you are not currently subscribed) and uploads the export.
+* **Add to Map as Overlay** builds a north-up GeoTIFF, imports it through CloudTAK (same path as Files → Add to Map as Overlay), waits for Cloud Optimized tiles via the PMTiles TileJSON endpoint, and opens the Overlays menu. The live rubber-sheet warp stays editable until you Cancel/Remove.
+* Imagery is JPEG quality 85. A picture that already has transparent pixels stays PNG inside the KMZ. GeoTIFF and GeoPDF are a north-up copy of the fitted sheet, at most 4096 px on the long side, so they match what you see even though those formats cannot store a four-corner warp. The KMZ keeps the exact corners with a KML `gx:LatLonQuad`.
 
 ## Install
 
-The plugin is compiled into the CloudTAK web bundle when the CloudTAK image is built. Nothing is installed at runtime.
-
-1. `app/package.json` in [TAK-NZ/CloudTAK](https://github.com/TAK-NZ/CloudTAK) must list `"pdfjs-dist": "4.10.38"` (exact version) and `app/package-lock.json` must match. The Docker build runs `npm ci` before plugins are cloned, so the plugin cannot add it itself.
-2. List the plugin URL in `webPlugins` for the environment in `cdk/cdk.json` (`context.<env>.cloudtak.webPlugins`). Several plugins can be separated by commas or spaces:
-   ```json
-   "webPlugins": "https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git"
-   ```
-3. Deploy as usual. See [Installing CloudTAK plugins (WEB_PLUGINS)](https://github.com/TAK-NZ/CloudTAK/blob/main/docs/DEPLOYMENT_GUIDE.md) in the deployment guide for the manual and CI paths.
-4. Users choose **Settings → Refresh App**, because the service worker caches the old app.
-
-The build clones the default branch (`main`) with `--depth 1`. A change to this repository alone does not change the image hash, so re-run the image build with `force_rebuild` or change a file under `api/` or `app/`. The image build also runs `npm run lint && npm run check` over `app/plugins/`, so the plugin has to pass the CloudTAK app's lint and type checks.
-
-To remove the plugin, take the URL out of `webPlugins` and rebuild.
-
-## Development
-
-Put a clone at `app/plugins/cloudtak-plugin-rubbersheet` inside a CloudTAK checkout (the folder is git-ignored by CloudTAK), then run `npm ci` and `npm run serve` from `app/`:
-
 ```bash
-git clone https://github.com/TAK-NZ/cloudtak-plugin-rubbersheet.git /path/to/CloudTAK/app/plugins/cloudtak-plugin-rubbersheet
+git clone https://github.com/AdventureSeeker423/cloudtak-plugin-rubbersheet.git
+cd cloudtak-plugin-rubbersheet
+./install.sh
 ```
 
-The plugin has to live physically in `app/plugins/<name>/` to run in the app: `lib/overlay.ts`, `lib/missions.ts` and the other host imports use relative paths such as `../../../src/std.ts`. A symlink works for the host's lint and type check but not for running the app.
+Or pass the CloudTAK path:
 
 ```bash
-npm test    # in this repository: unit tests for the pure logic (geometry, warp, history, viewport maths, export formats)
-
-cd /path/to/CloudTAK/app
-npx eslint --config eslint.config.js plugins/cloudtak-plugin-rubbersheet/index.ts plugins/cloudtak-plugin-rubbersheet/lib   # 0 errors expected
-npm run check   # vue-tsc for the whole app
+./install.sh /path/to/CloudTAK
 ```
 
-`npm run lint` in `app/` follows the same rules for a plugin that is a real folder. The image build runs both.
+The script finds CloudTAK at `$CLOUDTAK`, `~/CloudTAK`, `/home/takwerx/CloudTAK`, or `/home/*/CloudTAK`. Before copying, it fetches the latest `main` from GitHub. If you run it from a marketplace copy (no plugin `.git`), it clones GitHub into a temp dir so the install is not stuck on stale files. Then it copies into `app/plugins/rubber-sheet/`, adds `pdfjs-dist` to the CloudTAK app if it is missing, and rebuilds the API image.
 
-Try it on a phone-sized screen with Chrome DevTools device mode: 360×800, 390×844 and 844×390 (landscape), touch emulation on, in both Light and Dark theme. Real-device checks (finger size, Android Back, iOS safe areas, share sheet, login in the CloudTAK apps, large PDFs) are listed in [docs/testing.md](docs/testing.md).
+After it finishes: **Settings → Refresh App**. A normal browser refresh is not enough.
 
-## Licence
+```bash
+./install.sh --remove
+```
 
-Apache License 2.0. See [LICENSE](LICENSE). The menu icon is traced from an ATAK-CIV icon (GPL-3.0); see [NOTICE](NOTICE). PDF.js is Apache-2.0.
+### Local development
+
+Symlink this checkout to `CloudTAK/app/plugins/rubber-sheet`. From the CloudTAK `app` directory, install PDF.js if it is not already there (`npm install pdfjs-dist@4.10.38 --save`), then restart `npm run serve`.
+
+`@tak-ps/cloudtak` in this repo's `package.json` points at `../../../CloudTAK/app` for types. Change that path if your CloudTAK checkout lives somewhere else.
