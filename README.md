@@ -20,7 +20,7 @@ Requires CloudTAK **13.102** or newer. PDF pages are rendered with [PDF.js](http
 ## Install
 
 ```bash
-git clone https://github.com/AdventureSeeker423/cloudtak-plugin-rubbersheet.git
+git clone https://github.com/ValleyTacticalSolutions/cloudtak-plugin-rubbersheet.git
 cd cloudtak-plugin-rubbersheet
 ./install.sh
 ```
