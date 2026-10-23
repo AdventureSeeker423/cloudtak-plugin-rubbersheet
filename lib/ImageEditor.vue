@@ -94,7 +94,12 @@
                         :title='undoTitle'
                         @click='doUndo'
                     >
-                        <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='15'
+                            height='15'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M12.5 8c-2.6 0-5 1-6.9 2.6L3 8v8h8l-2.6-2.6A6.9 6.9 0 0 1 12.5 11c3 0 5.6 1.9 6.6 4.6l2.3-.8C20 11.3 16.5 8 12.5 8z'
@@ -109,7 +114,12 @@
                         :title='redoTitle'
                         @click='doRedo'
                     >
-                        <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='15'
+                            height='15'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M11.5 8c2.6 0 5 1 6.9 2.6L21 8v8h-8l2.6-2.6A6.9 6.9 0 0 0 11.5 11c-3 0-5.6 1.9-6.6 4.6l-2.3-.8C4 11.3 7.5 8 11.5 8z'
@@ -172,7 +182,12 @@
                         title='Magic Wand — select connected color'
                         @click='setTool("wand")'
                     >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='20'
+                            height='20'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M7.5 21.5 3 17l9.5-9.5 4.5 4.5L7.5 21.5zm11.2-14.4-1.8-1.8 1.4-1.4a1 1 0 0 1 1.4 0l1.8 1.8a1 1 0 0 1 0 1.4l-1.4 1.4-1.4-1.4zM14 4l1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1z'
@@ -188,7 +203,12 @@
                         title='Rectangle Marquee — drag to select'
                         @click='setTool("rect")'
                     >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='20'
+                            height='20'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='none'
                                 stroke='currentColor'
@@ -207,7 +227,12 @@
                         title='Eraser — paint transparency'
                         @click='setTool("eraser")'
                     >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='20'
+                            height='20'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M16.2 3.2a2 2 0 0 1 2.8 0l1.8 1.8a2 2 0 0 1 0 2.8L10.5 18.1 5 19.5l1.4-5.5L16.2 3.2zM4 20.5h16v2H4v-2z'
@@ -223,7 +248,12 @@
                         title='Selective Color — select every matching color in the image'
                         @click='setTool("color")'
                     >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='20'
+                            height='20'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M3 17.2 12.8 7.4l3.8 3.8L6.8 21H3v-3.8zm14.6-9.2 2.1-2.1a1.5 1.5 0 0 0 0-2.1l-1.5-1.5a1.5 1.5 0 0 0-2.1 0l-2.1 2.1 3.6 3.6zM14 19h7v2h-7v-2z'
@@ -239,7 +269,12 @@
                         title='Icons — place or remove facility markers'
                         @click='setTool("stamp")'
                     >
-                        <svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'>
+                        <svg
+                            viewBox='0 0 24 24'
+                            width='20'
+                            height='20'
+                            aria-hidden='true'
+                        >
                             <path
                                 fill='currentColor'
                                 d='M12 2a4 4 0 0 1 4 4c0 2.2-1.8 5.2-4 8.5C9.8 11.2 8 8.2 8 6a4 4 0 0 1 4-4zm0 5.5A1.5 1.5 0 1 0 12 4a1.5 1.5 0 0 0 0 3.5zM6 20.5c0-2.5 2.7-4.5 6-4.5s6 2 6 4.5V22H6v-1.5z'
@@ -325,7 +360,12 @@
                             title='Delete selection (Del)'
                             @click='deleteSelection'
                         >
-                            <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                            <svg
+                                viewBox='0 0 24 24'
+                                width='15'
+                                height='15'
+                                aria-hidden='true'
+                            >
                                 <path
                                     fill='currentColor'
                                     d='M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v9h-2V9zm4 0h2v9h-2V9zM7 9h2v9H7V9zm-1 12h12l1-12H5l1 12z'
@@ -339,7 +379,12 @@
                             :title='deselectTitle'
                             @click='clearSelection'
                         >
-                            <svg viewBox='0 0 24 24' width='15' height='15' aria-hidden='true'>
+                            <svg
+                                viewBox='0 0 24 24'
+                                width='15'
+                                height='15'
+                                aria-hidden='true'
+                            >
                                 <path
                                     fill='currentColor'
                                     d='M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3 1.4 1.4z'
@@ -437,17 +482,19 @@
                         </p>
                     </template>
                     <template v-else-if='tool === "wand"'>
-                        <div class='ie-opt-label'>Match range</div>
+                        <div class='ie-opt-label'>
+                            Match range
+                        </div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
                             <span>Loose</span>
                         </div>
                         <input
+                            v-model.number='fuzziness'
                             class='ie-range'
                             type='range'
                             min='0'
                             max='80'
-                            v-model.number='fuzziness'
                             aria-label='Match range'
                             title='How far from the clicked color still counts as a match'
                         >
@@ -479,7 +526,9 @@
                         </p>
                     </template>
                     <template v-else-if='tool === "rect"'>
-                        <div class='ie-opt-label'>Rectangle</div>
+                        <div class='ie-opt-label'>
+                            Rectangle
+                        </div>
                         <div class='ie-opt-label'>
                             Selection
                         </div>
@@ -508,7 +557,9 @@
                         </p>
                     </template>
                     <template v-else-if='tool === "color"'>
-                        <div class='ie-opt-label'>Target color</div>
+                        <div class='ie-opt-label'>
+                            Target color
+                        </div>
                         <div class='ie-swatch-row'>
                             <span
                                 class='ie-swatch'
@@ -521,17 +572,19 @@
                                 {{ hasColorTarget ? targetColorCss : 'Click image to pick' }}
                             </span>
                         </div>
-                        <div class='ie-opt-label'>Match range</div>
+                        <div class='ie-opt-label'>
+                            Match range
+                        </div>
                         <div class='ie-range-labels'>
                             <span>Exact</span>
                             <span>Loose</span>
                         </div>
                         <input
+                            v-model.number='fuzziness'
                             class='ie-range'
                             type='range'
                             min='0'
                             max='80'
-                            v-model.number='fuzziness'
                             :disabled='!hasColorTarget'
                             aria-label='Match range'
                             title='How far from the target color still counts as a match'
@@ -542,7 +595,9 @@
                         </p>
                     </template>
                     <template v-else-if='tool === "stamp"'>
-                        <div class='ie-opt-label'>Facility</div>
+                        <div class='ie-opt-label'>
+                            Facility
+                        </div>
                         <div class='ie-stamp-grid'>
                             <button
                                 v-for='entry in facilityCatalog'
@@ -562,7 +617,9 @@
                                 <span>{{ entry.short }}</span>
                             </button>
                         </div>
-                        <div class='ie-opt-label'>Numbered placards</div>
+                        <div class='ie-opt-label'>
+                            Numbered placards
+                        </div>
                         <div class='ie-stamp-grid ie-stamp-grid-numbers'>
                             <button
                                 v-for='entry in numberCatalog'
@@ -581,16 +638,20 @@
                                 />
                             </button>
                         </div>
-                        <div class='ie-opt-label'>Icon size</div>
+                        <div class='ie-opt-label'>
+                            Icon size
+                        </div>
                         <input
+                            v-model.number='stampSize'
                             class='ie-range'
                             type='range'
                             min='16'
                             max='96'
-                            v-model.number='stampSize'
                             aria-label='Icon size'
                         >
-                        <div class='ie-brush-value'>{{ stampSize }}px</div>
+                        <div class='ie-brush-value'>
+                            {{ stampSize }}px
+                        </div>
                         <button
                             v-if='stampKind'
                             type='button'
@@ -611,17 +672,24 @@
                         </p>
                     </template>
                     <template v-else>
-                        <div class='ie-opt-label'>Brush size</div>
-                        <div class='ie-brush-preview' :style='brushPreviewStyle' />
+                        <div class='ie-opt-label'>
+                            Brush size
+                        </div>
+                        <div
+                            class='ie-brush-preview'
+                            :style='brushPreviewStyle'
+                        />
                         <input
+                            v-model.number='brushSize'
                             class='ie-range'
                             type='range'
                             min='2'
                             max='300'
-                            v-model.number='brushSize'
                             aria-label='Brush size'
                         >
-                        <div class='ie-brush-value'>{{ brushSize }}px</div>
+                        <div class='ie-brush-value'>
+                            {{ brushSize }}px
+                        </div>
                         <label class='ie-toggle ie-touch-only'>
                             <input
                                 v-model='offsetCursor'
